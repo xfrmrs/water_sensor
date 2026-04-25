@@ -6,10 +6,6 @@
 #define DEBUG false
 #define DEBUG_M true
 
-//pin assignments 
-#define WATER 13
-#define ERRLED 16
-
 // delay constants
 #define LOOP_DELAY 1000
 #define WATER_DELAY 1500
@@ -20,9 +16,11 @@
 #define WATER_ERR 2500
 #define WATER_MIN 4
 
-// HC-SR04 PINS
-#define TRIG 4
-#define ECHO 5
+//pin assignments 
+#define TRIG 4    // yellow
+#define ECHO 5    // green
+#define WATER 13  // white w/black stripe
+#define ERRLED 16 // N/A
 
 // global variables
 int count = 0;
