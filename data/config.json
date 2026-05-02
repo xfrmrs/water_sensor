@@ -1,0 +1,21 @@
+{
+  "waterMaxDuration": 90,
+  "loopDelayMs": 1000,
+  "waterDelayMs": 1500,
+  "waterLowUs": 1200,
+  "waterHighUs": 500,
+  "waterErrUs": 2500,
+  "pulseTimeoutUs": 5000,
+  "nPings": 5,
+  "minValidPings": 3,
+  "pingGapMs": 60,
+  "minValidEchoUs": 232,
+  "shortJumpUs": 250,
+  "shortConfirmDeltaUs": 120,
+  "shortConfirmCount": 2,
+  "maxHeldInvalidBursts": 3,
+  "wifiStaSsid": "",
+  "wifiStaPassword": "",
+  "wifiApSsid": "WaterSensorSetup",
+  "wifiApPassword": ""
+}
