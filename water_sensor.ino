@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <LittleFS.h>
 #include <SimpleKalmanFilter.h>
 
 // Error condition constants
@@ -13,6 +14,8 @@
 #define ERRLED 16 // (on-board)
 
 static const uint8_t MAX_CONFIGURABLE_PINGS = 12;
+static const char *CONFIG_FILE_PATH = "/config.json";
+static const char *CONFIG_TEMP_PATH = "/config.tmp";
 
 struct Config {
   unsigned long waterMaxDuration;
@@ -55,6 +58,7 @@ Config config = DEFAULT_CONFIG;
 
 int count = 0;
 bool filling = false;
+bool fileSystemReady = false;
 
 unsigned long lastAcceptedUs = 0;
 unsigned long pendingShortUs = 0;
@@ -75,6 +79,9 @@ bool WaterLow(unsigned long waterLevelUs);
 bool WaterHigh(unsigned long waterLevelUs);
 void resetMeasurementState();
 bool validateConfig(const Config &candidate);
+bool beginFileSystem();
+bool loadConfigFromFs();
+bool saveConfigToFs();
 
 void resetMeasurementState() {
   lastAcceptedUs = 0;
@@ -97,6 +104,26 @@ bool validateConfig(const Config &candidate) {
   if (candidate.shortConfirmCount == 0) return false;
   if (candidate.maxHeldInvalidBursts == 0) return false;
   return true;
+}
+
+bool beginFileSystem() {
+  fileSystemReady = LittleFS.begin();
+
+  if (fileSystemReady) {
+    Serial.println(F("LittleFS mounted"));
+  } else {
+    Serial.println(F("LittleFS mount failed; using in-memory config only"));
+  }
+
+  return fileSystemReady;
+}
+
+bool loadConfigFromFs() {
+  return false;
+}
+
+bool saveConfigToFs() {
+  return false;
 }
 
 static inline unsigned int usToCm(unsigned long echoUs) {
@@ -193,6 +220,10 @@ static unsigned long deglitchShortEchoUs(unsigned long candidateUs) {
 }
 
 void setup() {
+  Serial.begin(74800);
+
+  beginFileSystem();
+
   if (!validateConfig(config)) {
     config = DEFAULT_CONFIG;
   }
@@ -209,8 +240,9 @@ void setup() {
   digitalWrite(ERRLED, HIGH);
   digitalWrite(TRIG, LOW);
 
-  // Initialize serial communication
-  Serial.begin(74800);
+  if (DEBUG) {
+    Serial.println(F("Config runtime initialized"));
+  }
 }
 
 // The loop routine runs over and over again forever:
