@@ -72,6 +72,9 @@ int count = 0;
 bool filling = false;
 bool fileSystemReady = false;
 bool networkReady = false;
+bool networkReconnectPending = false;
+unsigned long networkReconnectAfterMs = 0;
+String uiStatusMessage = "";
 
 enum NetworkMode {
   NETWORK_MODE_SOFTAP,
@@ -109,12 +112,15 @@ JSONVar configToJson(const Config &source);
 bool jsonVarToUnsignedLong(const JSONVar &value, unsigned long &parsedValue);
 bool jsonVarToUint8(const JSONVar &value, uint8_t &parsedValue);
 bool jsonVarToString(const JSONVar &value, String &parsedValue);
+bool wifiSettingsDiffer(const Config &left, const Config &right);
+void applyPendingNetworkChange();
 bool connectToStationMode();
 void applyNetworkMode();
 void printNetworkStatus();
 String currentNetworkModeName();
 void configureWebServer();
 String htmlEscape(const String &value);
+void serviceRuntime(unsigned long durationMs);
 bool parseUnsignedLongArg(const String &name, unsigned long &parsedValue, String &errorMessage);
 bool parseUint8Arg(const String &name, uint8_t &parsedValue, String &errorMessage);
 bool configFromRequest(Config &candidate, String &errorMessage);
@@ -192,6 +198,13 @@ bool jsonVarToString(const JSONVar &value, String &parsedValue) {
 
   parsedValue = String((const char *)value);
   return true;
+}
+
+bool wifiSettingsDiffer(const Config &left, const Config &right) {
+  return left.wifiStaSsid != right.wifiStaSsid ||
+         left.wifiStaPassword != right.wifiStaPassword ||
+         left.wifiApSsid != right.wifiApSsid ||
+         left.wifiApPassword != right.wifiApPassword;
 }
 
 bool configFromJson(const JSONVar &json, Config &candidate) {
@@ -377,6 +390,30 @@ void applyNetworkMode() {
   }
 }
 
+void applyPendingNetworkChange() {
+  if (!networkReconnectPending) {
+    return;
+  }
+
+  long msUntilReconnect = (long)(networkReconnectAfterMs - millis());
+  if (msUntilReconnect > 0) {
+    return;
+  }
+
+  networkReconnectPending = false;
+  applyNetworkMode();
+  printNetworkStatus();
+  server.stop();
+  server.begin();
+
+  if (currentNetworkMode == NETWORK_MODE_STA) {
+    uiStatusMessage = String(F("Wi-Fi settings applied. Reconnect using the device LAN IP: ")) + currentNetworkIp;
+  } else {
+    uiStatusMessage = String(F("Wi-Fi settings saved, but LAN join failed. Reconnect to the setup AP '")) +
+                      config.wifiApSsid + F("' at ") + currentNetworkIp;
+  }
+}
+
 String currentNetworkModeName() {
   return currentNetworkMode == NETWORK_MODE_STA ? String(F("STA")) : String(F("SoftAP"));
 }
@@ -406,6 +443,24 @@ String htmlEscape(const String &value) {
   escaped.replace("<", "&lt;");
   escaped.replace(">", "&gt;");
   return escaped;
+}
+
+void serviceRuntime(unsigned long durationMs) {
+  unsigned long startedAt = millis();
+  while ((millis() - startedAt) < durationMs) {
+    server.handleClient();
+    applyPendingNetworkChange();
+
+    unsigned long elapsed = millis() - startedAt;
+    unsigned long remaining = durationMs > elapsed ? (durationMs - elapsed) : 0;
+    unsigned long sliceMs = remaining > 25 ? 25 : remaining;
+    if (sliceMs == 0) {
+      break;
+    }
+
+    delay(sliceMs);
+    yield();
+  }
 }
 
 bool parseUnsignedLongArg(const String &name, unsigned long &parsedValue, String &errorMessage) {
@@ -485,6 +540,13 @@ void sendConfigPage(const String &statusMessage) {
   page += htmlEscape(currentNetworkModeName());
   page += F("<br>IP: ");
   page += htmlEscape(currentNetworkIp);
+  if (currentNetworkMode == NETWORK_MODE_SOFTAP) {
+    page += F("<br>Setup AP: ");
+    page += htmlEscape(config.wifiApSsid);
+  } else {
+    page += F("<br>Joined LAN SSID: ");
+    page += htmlEscape(config.wifiStaSsid);
+  }
   page += F("</p>");
 
   if (statusMessage.length() > 0) {
@@ -584,13 +646,14 @@ void sendConfigPage(const String &statusMessage) {
 }
 
 void handleRoot() {
-  sendConfigPage("");
+  sendConfigPage(uiStatusMessage);
 }
 
 void handleSave() {
   Config candidate = config;
   Config previousConfig = config;
   String errorMessage;
+  bool networkChanged = false;
 
   if (!configFromRequest(candidate, errorMessage)) {
     sendConfigPage(errorMessage);
@@ -602,6 +665,7 @@ void handleSave() {
     return;
   }
 
+  networkChanged = wifiSettingsDiffer(previousConfig, candidate);
   config = candidate;
   resetMeasurementState();
 
@@ -612,7 +676,18 @@ void handleSave() {
     return;
   }
 
-  sendConfigPage(F("Settings saved."));
+  if (networkChanged) {
+    uiStatusMessage = String(F("Settings saved. The device will now try to join the configured LAN. ")) +
+                      F("If the page disconnects, reconnect to the LAN if it succeeds or back to the setup AP if it fails.");
+    networkReconnectPending = true;
+    networkReconnectAfterMs = millis() + 1000UL;
+    server.sendHeader("Connection", "close");
+    sendConfigPage(uiStatusMessage);
+    return;
+  }
+
+  uiStatusMessage = F("Settings saved.");
+  sendConfigPage(uiStatusMessage);
 }
 
 void handleNotFound() {
@@ -752,8 +827,10 @@ void setup() {
 // The loop routine runs over and over again forever:
 void loop() {
   server.handleClient();
-  delay(filling ? config.waterDelayMs : config.loopDelayMs);
+  applyPendingNetworkChange();
+  serviceRuntime(filling ? config.waterDelayMs : config.loopDelayMs);
   server.handleClient();
+  applyPendingNetworkChange();
 
   unsigned long waterLevelUs = WaterLevel();
 
