@@ -12,29 +12,47 @@
 #define WATER 13  // white w/black stripe
 #define ERRLED 16 // (on-board)
 
+static const uint8_t MAX_CONFIGURABLE_PINGS = 12;
 
-// Delay constants
-#define LOOP_DELAY 1000
-#define WATER_DELAY 1500
+struct Config {
+  unsigned long waterMaxDuration;
+  unsigned long loopDelayMs;
+  unsigned long waterDelayMs;
+  unsigned long waterLowUs;
+  unsigned long waterHighUs;
+  unsigned long waterErrUs;
+  unsigned long pulseTimeoutUs;
+  uint8_t nPings;
+  uint8_t minValidPings;
+  unsigned long pingGapMs;
+  unsigned long minValidEchoUs;
+  unsigned long shortJumpUs;
+  unsigned long shortConfirmDeltaUs;
+  uint8_t shortConfirmCount;
+  uint8_t maxHeldInvalidBursts;
+};
 
-// Water level thresholds in echo microseconds.
-// Larger echo time means the water surface is farther from the sensor.
-#define WATER_LOW_US 1200UL
-#define WATER_HIGH_US 500UL
-#define WATER_ERR_US 2500UL
-
-// Measurement filtering
-#define PULSE_TIMEOUT_US 5000UL
-#define N_PINGS 5
-#define MIN_VALID_PINGS 3
-#define PING_GAP_MS 60
-#define MIN_VALID_ECHO_US 232UL
-#define SHORT_JUMP_US 250UL
-#define SHORT_CONFIRM_DELTA_US 120UL
-#define SHORT_CONFIRM_COUNT 2
-#define MAX_HELD_INVALID_BURSTS 3
+const Config DEFAULT_CONFIG = {
+  90,
+  1000,
+  1500,
+  1200UL,
+  500UL,
+  2500UL,
+  5000UL,
+  5,
+  3,
+  60,
+  232UL,
+  250UL,
+  120UL,
+  2,
+  3
+};
 
 // Global variables
+Config config = DEFAULT_CONFIG;
+
 int count = 0;
 bool filling = false;
 
@@ -55,6 +73,31 @@ SimpleKalmanFilter simpleKalmanFilter(5, 2, 0.01);
 unsigned long WaterLevel();
 bool WaterLow(unsigned long waterLevelUs);
 bool WaterHigh(unsigned long waterLevelUs);
+void resetMeasurementState();
+bool validateConfig(const Config &candidate);
+
+void resetMeasurementState() {
+  lastAcceptedUs = 0;
+  pendingShortUs = 0;
+  pendingShortCount = 0;
+  invalidBurstCount = 0;
+}
+
+bool validateConfig(const Config &candidate) {
+  if (candidate.waterMaxDuration == 0) return false;
+  if (candidate.loopDelayMs == 0) return false;
+  if (candidate.waterDelayMs == 0) return false;
+  if (candidate.waterHighUs >= candidate.waterLowUs) return false;
+  if (candidate.waterLowUs >= candidate.waterErrUs) return false;
+  if (candidate.pulseTimeoutUs < candidate.waterErrUs) return false;
+  if (candidate.nPings == 0 || candidate.nPings > MAX_CONFIGURABLE_PINGS) return false;
+  if (candidate.minValidPings == 0 || candidate.minValidPings > candidate.nPings) return false;
+  if (candidate.pingGapMs == 0) return false;
+  if (candidate.minValidEchoUs == 0) return false;
+  if (candidate.shortConfirmCount == 0) return false;
+  if (candidate.maxHeldInvalidBursts == 0) return false;
+  return true;
+}
 
 static inline unsigned int usToCm(unsigned long echoUs) {
   return (unsigned int)((echoUs + 29UL) / 58UL);
@@ -71,7 +114,7 @@ static unsigned long readEchoUsOnce() {
   digitalWrite(TRIG, HIGH);
   delayMicroseconds(10);
   digitalWrite(TRIG, LOW);
-  return pulseIn(ECHO, HIGH, PULSE_TIMEOUT_US);
+  return pulseIn(ECHO, HIGH, config.pulseTimeoutUs);
 }
 
 static void sortEchoSamples(unsigned long *samples, uint8_t countSamples) {
@@ -87,22 +130,22 @@ static void sortEchoSamples(unsigned long *samples, uint8_t countSamples) {
 }
 
 static unsigned long readMedianEchoUs() {
-  unsigned long samples[N_PINGS];
+  unsigned long samples[MAX_CONFIGURABLE_PINGS];
   uint8_t validCount = 0;
 
-  for (uint8_t i = 0; i < N_PINGS; ++i) {
+  for (uint8_t i = 0; i < config.nPings; ++i) {
     unsigned long echoUs = readEchoUsOnce();
 
-    if ((echoUs >= MIN_VALID_ECHO_US) && (echoUs <= WATER_ERR_US)) {
+    if ((echoUs >= config.minValidEchoUs) && (echoUs <= config.waterErrUs)) {
       samples[validCount++] = echoUs;
     }
 
-    if (i + 1 < N_PINGS) {
-      delay(PING_GAP_MS);
+    if (i + 1 < config.nPings) {
+      delay(config.pingGapMs);
     }
   }
 
-  if (validCount < MIN_VALID_PINGS) {
+  if (validCount < config.minValidPings) {
     return 0;
   }
 
@@ -115,11 +158,11 @@ static unsigned long deglitchShortEchoUs(unsigned long candidateUs) {
     pendingShortCount = 0;
     ++invalidBurstCount;
 
-    if ((lastAcceptedUs > 0) && (invalidBurstCount <= MAX_HELD_INVALID_BURSTS)) {
+    if ((lastAcceptedUs > 0) && (invalidBurstCount <= config.maxHeldInvalidBursts)) {
       return lastAcceptedUs;
     }
 
-    return WATER_ERR_US;
+    return config.waterErrUs;
   }
 
   invalidBurstCount = 0;
@@ -130,16 +173,16 @@ static unsigned long deglitchShortEchoUs(unsigned long candidateUs) {
     return candidateUs;
   }
 
-  if ((candidateUs + SHORT_JUMP_US) < lastAcceptedUs) {
+  if ((candidateUs + config.shortJumpUs) < lastAcceptedUs) {
     if ((pendingShortCount > 0) &&
-        (absDiffUs(candidateUs, pendingShortUs) <= SHORT_CONFIRM_DELTA_US)) {
+        (absDiffUs(candidateUs, pendingShortUs) <= config.shortConfirmDeltaUs)) {
       ++pendingShortCount;
     } else {
       pendingShortUs = candidateUs;
       pendingShortCount = 1;
     }
 
-    if (pendingShortCount < SHORT_CONFIRM_COUNT) {
+    if (pendingShortCount < config.shortConfirmCount) {
       return lastAcceptedUs;
     }
   }
@@ -150,6 +193,12 @@ static unsigned long deglitchShortEchoUs(unsigned long candidateUs) {
 }
 
 void setup() {
+  if (!validateConfig(config)) {
+    config = DEFAULT_CONFIG;
+  }
+
+  resetMeasurementState();
+
   pinMode(WATER, OUTPUT);
   pinMode(ERRLED, OUTPUT);
   pinMode(TRIG, OUTPUT);
@@ -166,11 +215,11 @@ void setup() {
 
 // The loop routine runs over and over again forever:
 void loop() {
-  delay(filling ? WATER_DELAY : LOOP_DELAY);
+  delay(filling ? config.waterDelayMs : config.loopDelayMs);
 
   unsigned long waterLevelUs = WaterLevel();
 
-  if (waterLevelUs >= WATER_ERR_US) {
+  if (waterLevelUs >= config.waterErrUs) {
     if (DEBUG) Serial.println("water reading invalid, STOP water");
     digitalWrite(WATER, HIGH);
     digitalWrite(ERRLED, LOW);
@@ -195,7 +244,7 @@ void loop() {
     digitalWrite(WATER, LOW);
 
     // Stop watering if watering for too long.
-    if (count++ > WATER_MAX_DURATION) {
+    if (count++ > (int)config.waterMaxDuration) {
       digitalWrite(WATER, HIGH);
       digitalWrite(ERRLED, LOW);
       filling = false;
@@ -218,7 +267,7 @@ unsigned long WaterLevel() {
   unsigned long acceptedUs = deglitchShortEchoUs(measuredUs);
   unsigned long estimateUs = acceptedUs;
 
-  if (acceptedUs < WATER_ERR_US) {
+  if (acceptedUs < config.waterErrUs) {
     estimateUs = (unsigned long)(simpleKalmanFilter.updateEstimate((float)acceptedUs) + 0.5f);
   }
 
@@ -242,9 +291,9 @@ unsigned long WaterLevel() {
 }
 
 bool WaterLow(unsigned long waterLevelUs) {
-  return (waterLevelUs >= WATER_LOW_US) && (waterLevelUs < WATER_ERR_US);
+  return (waterLevelUs >= config.waterLowUs) && (waterLevelUs < config.waterErrUs);
 }
 
 bool WaterHigh(unsigned long waterLevelUs) {
-  return (waterLevelUs <= WATER_HIGH_US);
+  return (waterLevelUs <= config.waterHighUs);
 }
