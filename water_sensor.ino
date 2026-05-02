@@ -5,18 +5,18 @@
 #include <LittleFS.h>
 #include <SimpleKalmanFilter.h>
 
-// Error condition constants
-#define WATER_MAX_DURATION 90
+// Compile-time debug flags
 #define DEBUG false
 #define DEBUG_M true
 
-//pin assignments 
+// Pin assignments (compile-time only)
 #define TRIG 4    // yellow
 #define ECHO 5    // green
 #define WATER 13  // white w/black stripe
 #define ERRLED 16 // (on-board)
 
 static const uint8_t MAX_CONFIGURABLE_PINGS = 12;
+static const unsigned long SERIAL_BAUD = 74880UL;
 static const char *CONFIG_FILE_PATH = "/config.json";
 static const char *CONFIG_TEMP_PATH = "/config.tmp";
 static const unsigned long WIFI_STA_CONNECT_TIMEOUT_MS = 15000UL;
@@ -415,7 +415,7 @@ void applyPendingNetworkChange() {
 }
 
 String currentNetworkModeName() {
-  return currentNetworkMode == NETWORK_MODE_STA ? String(F("STA")) : String(F("SoftAP"));
+  return currentNetworkMode == NETWORK_MODE_STA ? String(F("Local Wi-Fi")) : String(F("Setup AP"));
 }
 
 void printNetworkStatus() {
@@ -557,7 +557,7 @@ void sendConfigPage(const String &statusMessage) {
 
   page += F("<form method='post' action='/save'>");
   page += F("<fieldset><legend>Water Control</legend>");
-  page += F("<label for='waterMaxDuration'>Water max duration</label>");
+  page += F("<label for='waterMaxDuration'>Water max duration (control cycles)</label>");
   page += F("<input id='waterMaxDuration' name='waterMaxDuration' type='number' min='1' value='");
   page += String(config.waterMaxDuration);
   page += F("'>");
@@ -795,7 +795,7 @@ static unsigned long deglitchShortEchoUs(unsigned long candidateUs) {
 }
 
 void setup() {
-  Serial.begin(74800);
+  Serial.begin(SERIAL_BAUD);
 
   beginFileSystem();
   if (!loadConfigFromFs() || !validateConfig(config)) {
