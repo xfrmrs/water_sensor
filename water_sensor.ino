@@ -114,6 +114,8 @@ void applyNetworkMode();
 void printNetworkStatus();
 String currentNetworkModeName();
 void configureWebServer();
+String htmlEscape(const String &value);
+void sendConfigPage(const String &statusMessage);
 void handleRoot();
 void handleSave();
 void handleNotFound();
@@ -394,8 +396,131 @@ void printNetworkStatus() {
   Serial.println(currentNetworkIp);
 }
 
+String htmlEscape(const String &value) {
+  String escaped = value;
+  escaped.replace("&", "&amp;");
+  escaped.replace("\"", "&quot;");
+  escaped.replace("<", "&lt;");
+  escaped.replace(">", "&gt;");
+  return escaped;
+}
+
+void sendConfigPage(const String &statusMessage) {
+  String page;
+  page.reserve(5000);
+  page += F("<!doctype html><html><head><meta charset='utf-8'>");
+  page += F("<meta name='viewport' content='width=device-width,initial-scale=1'>");
+  page += F("<title>Water Sensor Config</title>");
+  page += F("<style>body{font-family:Arial,sans-serif;margin:24px;max-width:760px;}");
+  page += F("fieldset{margin-bottom:18px;padding:16px;}label{display:block;margin:8px 0 4px;}");
+  page += F("input{width:100%;padding:8px;box-sizing:border-box;}button{padding:10px 16px;}");
+  page += F(".status{margin-bottom:16px;padding:12px;background:#eef;border:1px solid #99c;}");
+  page += F("</style></head><body>");
+  page += F("<h1>Water Sensor Config</h1>");
+  page += F("<p>Mode: ");
+  page += htmlEscape(currentNetworkModeName());
+  page += F("<br>IP: ");
+  page += htmlEscape(currentNetworkIp);
+  page += F("</p>");
+
+  if (statusMessage.length() > 0) {
+    page += F("<div class='status'>");
+    page += htmlEscape(statusMessage);
+    page += F("</div>");
+  }
+
+  page += F("<form method='post' action='/save'>");
+  page += F("<fieldset><legend>Water Control</legend>");
+  page += F("<label for='waterMaxDuration'>Water max duration</label>");
+  page += F("<input id='waterMaxDuration' name='waterMaxDuration' type='number' min='1' value='");
+  page += String(config.waterMaxDuration);
+  page += F("'>");
+  page += F("<label for='loopDelayMs'>Loop delay (ms)</label>");
+  page += F("<input id='loopDelayMs' name='loopDelayMs' type='number' min='1' value='");
+  page += String(config.loopDelayMs);
+  page += F("'>");
+  page += F("<label for='waterDelayMs'>Water delay (ms)</label>");
+  page += F("<input id='waterDelayMs' name='waterDelayMs' type='number' min='1' value='");
+  page += String(config.waterDelayMs);
+  page += F("'>");
+  page += F("<label for='waterLowUs'>Low threshold (us)</label>");
+  page += F("<input id='waterLowUs' name='waterLowUs' type='number' min='1' value='");
+  page += String(config.waterLowUs);
+  page += F("'>");
+  page += F("<label for='waterHighUs'>High threshold (us)</label>");
+  page += F("<input id='waterHighUs' name='waterHighUs' type='number' min='1' value='");
+  page += String(config.waterHighUs);
+  page += F("'>");
+  page += F("<label for='waterErrUs'>Error threshold (us)</label>");
+  page += F("<input id='waterErrUs' name='waterErrUs' type='number' min='1' value='");
+  page += String(config.waterErrUs);
+  page += F("'>");
+  page += F("</fieldset>");
+
+  page += F("<fieldset><legend>Sensor Filtering</legend>");
+  page += F("<label for='pulseTimeoutUs'>Pulse timeout (us)</label>");
+  page += F("<input id='pulseTimeoutUs' name='pulseTimeoutUs' type='number' min='1' value='");
+  page += String(config.pulseTimeoutUs);
+  page += F("'>");
+  page += F("<label for='nPings'>Ping count</label>");
+  page += F("<input id='nPings' name='nPings' type='number' min='1' value='");
+  page += String(config.nPings);
+  page += F("'>");
+  page += F("<label for='minValidPings'>Minimum valid pings</label>");
+  page += F("<input id='minValidPings' name='minValidPings' type='number' min='1' value='");
+  page += String(config.minValidPings);
+  page += F("'>");
+  page += F("<label for='pingGapMs'>Ping gap (ms)</label>");
+  page += F("<input id='pingGapMs' name='pingGapMs' type='number' min='1' value='");
+  page += String(config.pingGapMs);
+  page += F("'>");
+  page += F("<label for='minValidEchoUs'>Minimum valid echo (us)</label>");
+  page += F("<input id='minValidEchoUs' name='minValidEchoUs' type='number' min='1' value='");
+  page += String(config.minValidEchoUs);
+  page += F("'>");
+  page += F("<label for='shortJumpUs'>Short jump reject window (us)</label>");
+  page += F("<input id='shortJumpUs' name='shortJumpUs' type='number' min='1' value='");
+  page += String(config.shortJumpUs);
+  page += F("'>");
+  page += F("<label for='shortConfirmDeltaUs'>Short confirm delta (us)</label>");
+  page += F("<input id='shortConfirmDeltaUs' name='shortConfirmDeltaUs' type='number' min='1' value='");
+  page += String(config.shortConfirmDeltaUs);
+  page += F("'>");
+  page += F("<label for='shortConfirmCount'>Short confirm count</label>");
+  page += F("<input id='shortConfirmCount' name='shortConfirmCount' type='number' min='1' value='");
+  page += String(config.shortConfirmCount);
+  page += F("'>");
+  page += F("<label for='maxHeldInvalidBursts'>Max held invalid bursts</label>");
+  page += F("<input id='maxHeldInvalidBursts' name='maxHeldInvalidBursts' type='number' min='1' value='");
+  page += String(config.maxHeldInvalidBursts);
+  page += F("'>");
+  page += F("</fieldset>");
+
+  page += F("<fieldset><legend>Wi-Fi</legend>");
+  page += F("<label for='wifiStaSsid'>Local Wi-Fi SSID</label>");
+  page += F("<input id='wifiStaSsid' name='wifiStaSsid' value='");
+  page += htmlEscape(config.wifiStaSsid);
+  page += F("'>");
+  page += F("<label for='wifiStaPassword'>Local Wi-Fi password</label>");
+  page += F("<input id='wifiStaPassword' name='wifiStaPassword' type='password' value='");
+  page += htmlEscape(config.wifiStaPassword);
+  page += F("'>");
+  page += F("<label for='wifiApSsid'>Setup AP SSID</label>");
+  page += F("<input id='wifiApSsid' name='wifiApSsid' value='");
+  page += htmlEscape(config.wifiApSsid);
+  page += F("'>");
+  page += F("<label for='wifiApPassword'>Setup AP password</label>");
+  page += F("<input id='wifiApPassword' name='wifiApPassword' type='password' value='");
+  page += htmlEscape(config.wifiApPassword);
+  page += F("'>");
+  page += F("</fieldset>");
+
+  page += F("<button type='submit'>Save Settings</button></form></body></html>");
+  server.send(200, "text/html", page);
+}
+
 void handleRoot() {
-  server.send(200, "text/plain", "Water sensor config UI is starting up.");
+  sendConfigPage("");
 }
 
 void handleSave() {
