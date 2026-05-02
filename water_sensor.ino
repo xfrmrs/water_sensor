@@ -109,6 +109,8 @@ bool jsonVarToUint8(const JSONVar &value, uint8_t &parsedValue);
 bool jsonVarToString(const JSONVar &value, String &parsedValue);
 bool connectToStationMode();
 void applyNetworkMode();
+void printNetworkStatus();
+String currentNetworkModeName();
 void startSoftApMode();
 
 void resetMeasurementState() {
@@ -364,6 +366,28 @@ void applyNetworkMode() {
   }
 }
 
+String currentNetworkModeName() {
+  return currentNetworkMode == NETWORK_MODE_STA ? String(F("STA")) : String(F("SoftAP"));
+}
+
+void printNetworkStatus() {
+  Serial.print(F("Network mode: "));
+  Serial.println(currentNetworkModeName());
+
+  if (currentNetworkMode == NETWORK_MODE_STA) {
+    Serial.print(F("Joined local Wi-Fi: "));
+    Serial.println(config.wifiStaSsid);
+  } else {
+    Serial.print(F("SoftAP SSID: "));
+    Serial.println(config.wifiApSsid);
+  }
+
+  Serial.print(F("Network ready: "));
+  Serial.println(networkReady ? F("yes") : F("no"));
+  Serial.print(F("Network IP: "));
+  Serial.println(currentNetworkIp);
+}
+
 static inline unsigned int usToCm(unsigned long echoUs) {
   return (unsigned int)((echoUs + 29UL) / 58UL);
 }
@@ -483,6 +507,7 @@ void setup() {
   }
 
   applyNetworkMode();
+  printNetworkStatus();
 }
 
 // The loop routine runs over and over again forever:
