@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <Arduino_JSON.h>
+#include <ESP8266WiFi.h>
 #include <LittleFS.h>
 #include <SimpleKalmanFilter.h>
 
@@ -68,6 +69,15 @@ Config config = DEFAULT_CONFIG;
 int count = 0;
 bool filling = false;
 bool fileSystemReady = false;
+bool networkReady = false;
+
+enum NetworkMode {
+  NETWORK_MODE_SOFTAP,
+  NETWORK_MODE_STA
+};
+
+NetworkMode currentNetworkMode = NETWORK_MODE_SOFTAP;
+String currentNetworkIp = "";
 
 unsigned long lastAcceptedUs = 0;
 unsigned long pendingShortUs = 0;
@@ -96,6 +106,7 @@ JSONVar configToJson(const Config &source);
 bool jsonVarToUnsignedLong(const JSONVar &value, unsigned long &parsedValue);
 bool jsonVarToUint8(const JSONVar &value, uint8_t &parsedValue);
 bool jsonVarToString(const JSONVar &value, String &parsedValue);
+void startSoftApMode();
 
 void resetMeasurementState() {
   lastAcceptedUs = 0;
@@ -303,6 +314,17 @@ bool saveConfigToFs() {
   return true;
 }
 
+void startSoftApMode() {
+  WiFi.softAPdisconnect(true);
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_AP);
+
+  const char *apPassword = config.wifiApPassword.length() > 0 ? config.wifiApPassword.c_str() : nullptr;
+  networkReady = WiFi.softAP(config.wifiApSsid.c_str(), apPassword);
+  currentNetworkMode = NETWORK_MODE_SOFTAP;
+  currentNetworkIp = WiFi.softAPIP().toString();
+}
+
 static inline unsigned int usToCm(unsigned long echoUs) {
   return (unsigned int)((echoUs + 29UL) / 58UL);
 }
@@ -420,6 +442,8 @@ void setup() {
   if (DEBUG) {
     Serial.println(F("Config runtime initialized"));
   }
+
+  startSoftApMode();
 }
 
 // The loop routine runs over and over again forever:
