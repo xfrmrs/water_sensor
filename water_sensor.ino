@@ -115,6 +115,9 @@ void printNetworkStatus();
 String currentNetworkModeName();
 void configureWebServer();
 String htmlEscape(const String &value);
+bool parseUnsignedLongArg(const String &name, unsigned long &parsedValue, String &errorMessage);
+bool parseUint8Arg(const String &name, uint8_t &parsedValue, String &errorMessage);
+bool configFromRequest(Config &candidate, String &errorMessage);
 void sendConfigPage(const String &statusMessage);
 void handleRoot();
 void handleSave();
@@ -405,6 +408,67 @@ String htmlEscape(const String &value) {
   return escaped;
 }
 
+bool parseUnsignedLongArg(const String &name, unsigned long &parsedValue, String &errorMessage) {
+  if (!server.hasArg(name)) {
+    errorMessage = String(F("Missing field: ")) + name;
+    return false;
+  }
+
+  String rawValue = server.arg(name);
+  rawValue.trim();
+
+  char *endPtr = nullptr;
+  unsigned long parsed = strtoul(rawValue.c_str(), &endPtr, 10);
+  if (endPtr == rawValue.c_str() || *endPtr != '\0') {
+    errorMessage = String(F("Invalid number for: ")) + name;
+    return false;
+  }
+
+  parsedValue = parsed;
+  return true;
+}
+
+bool parseUint8Arg(const String &name, uint8_t &parsedValue, String &errorMessage) {
+  unsigned long parsed = 0;
+  if (!parseUnsignedLongArg(name, parsed, errorMessage) || parsed > 255UL) {
+    if (errorMessage.length() == 0) {
+      errorMessage = String(F("Value out of range for: ")) + name;
+    }
+    return false;
+  }
+
+  parsedValue = (uint8_t)parsed;
+  return true;
+}
+
+bool configFromRequest(Config &candidate, String &errorMessage) {
+  if (!parseUnsignedLongArg("waterMaxDuration", candidate.waterMaxDuration, errorMessage)) return false;
+  if (!parseUnsignedLongArg("loopDelayMs", candidate.loopDelayMs, errorMessage)) return false;
+  if (!parseUnsignedLongArg("waterDelayMs", candidate.waterDelayMs, errorMessage)) return false;
+  if (!parseUnsignedLongArg("waterLowUs", candidate.waterLowUs, errorMessage)) return false;
+  if (!parseUnsignedLongArg("waterHighUs", candidate.waterHighUs, errorMessage)) return false;
+  if (!parseUnsignedLongArg("waterErrUs", candidate.waterErrUs, errorMessage)) return false;
+  if (!parseUnsignedLongArg("pulseTimeoutUs", candidate.pulseTimeoutUs, errorMessage)) return false;
+  if (!parseUint8Arg("nPings", candidate.nPings, errorMessage)) return false;
+  if (!parseUint8Arg("minValidPings", candidate.minValidPings, errorMessage)) return false;
+  if (!parseUnsignedLongArg("pingGapMs", candidate.pingGapMs, errorMessage)) return false;
+  if (!parseUnsignedLongArg("minValidEchoUs", candidate.minValidEchoUs, errorMessage)) return false;
+  if (!parseUnsignedLongArg("shortJumpUs", candidate.shortJumpUs, errorMessage)) return false;
+  if (!parseUnsignedLongArg("shortConfirmDeltaUs", candidate.shortConfirmDeltaUs, errorMessage)) return false;
+  if (!parseUint8Arg("shortConfirmCount", candidate.shortConfirmCount, errorMessage)) return false;
+  if (!parseUint8Arg("maxHeldInvalidBursts", candidate.maxHeldInvalidBursts, errorMessage)) return false;
+
+  candidate.wifiStaSsid = server.arg("wifiStaSsid");
+  candidate.wifiStaPassword = server.arg("wifiStaPassword");
+  candidate.wifiApSsid = server.arg("wifiApSsid");
+  candidate.wifiApPassword = server.arg("wifiApPassword");
+  candidate.wifiStaSsid.trim();
+  candidate.wifiStaPassword.trim();
+  candidate.wifiApSsid.trim();
+  candidate.wifiApPassword.trim();
+  return true;
+}
+
 void sendConfigPage(const String &statusMessage) {
   String page;
   page.reserve(5000);
@@ -524,7 +588,31 @@ void handleRoot() {
 }
 
 void handleSave() {
-  server.send(200, "text/plain", "Config save endpoint not implemented yet.");
+  Config candidate = config;
+  Config previousConfig = config;
+  String errorMessage;
+
+  if (!configFromRequest(candidate, errorMessage)) {
+    sendConfigPage(errorMessage);
+    return;
+  }
+
+  if (!validateConfig(candidate)) {
+    sendConfigPage(F("Validation failed. Check threshold ordering and Wi-Fi settings."));
+    return;
+  }
+
+  config = candidate;
+  resetMeasurementState();
+
+  if (!saveConfigToFs()) {
+    config = previousConfig;
+    resetMeasurementState();
+    sendConfigPage(F("Settings updated in memory but could not be saved to LittleFS."));
+    return;
+  }
+
+  sendConfigPage(F("Settings saved."));
 }
 
 void handleNotFound() {
