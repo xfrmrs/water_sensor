@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Arduino_JSON.h>
 #include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
 #include <LittleFS.h>
 #include <SimpleKalmanFilter.h>
 
@@ -79,6 +80,7 @@ enum NetworkMode {
 
 NetworkMode currentNetworkMode = NETWORK_MODE_SOFTAP;
 String currentNetworkIp = "";
+ESP8266WebServer server(80);
 
 unsigned long lastAcceptedUs = 0;
 unsigned long pendingShortUs = 0;
@@ -111,6 +113,10 @@ bool connectToStationMode();
 void applyNetworkMode();
 void printNetworkStatus();
 String currentNetworkModeName();
+void configureWebServer();
+void handleRoot();
+void handleSave();
+void handleNotFound();
 void startSoftApMode();
 
 void resetMeasurementState() {
@@ -388,6 +394,25 @@ void printNetworkStatus() {
   Serial.println(currentNetworkIp);
 }
 
+void handleRoot() {
+  server.send(200, "text/plain", "Water sensor config UI is starting up.");
+}
+
+void handleSave() {
+  server.send(200, "text/plain", "Config save endpoint not implemented yet.");
+}
+
+void handleNotFound() {
+  server.send(404, "text/plain", "Not found");
+}
+
+void configureWebServer() {
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/save", HTTP_POST, handleSave);
+  server.onNotFound(handleNotFound);
+  server.begin();
+}
+
 static inline unsigned int usToCm(unsigned long echoUs) {
   return (unsigned int)((echoUs + 29UL) / 58UL);
 }
@@ -508,11 +533,14 @@ void setup() {
 
   applyNetworkMode();
   printNetworkStatus();
+  configureWebServer();
 }
 
 // The loop routine runs over and over again forever:
 void loop() {
+  server.handleClient();
   delay(filling ? config.waterDelayMs : config.loopDelayMs);
+  server.handleClient();
 
   unsigned long waterLevelUs = WaterLevel();
 
