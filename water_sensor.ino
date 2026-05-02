@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <Arduino_JSON.h>
 #include <LittleFS.h>
 #include <SimpleKalmanFilter.h>
 
@@ -82,6 +83,10 @@ bool validateConfig(const Config &candidate);
 bool beginFileSystem();
 bool loadConfigFromFs();
 bool saveConfigToFs();
+bool configFromJson(const JSONVar &json, Config &candidate);
+JSONVar configToJson(const Config &source);
+bool jsonVarToUnsignedLong(const JSONVar &value, unsigned long &parsedValue);
+bool jsonVarToUint8(const JSONVar &value, uint8_t &parsedValue);
 
 void resetMeasurementState() {
   lastAcceptedUs = 0;
@@ -118,12 +123,132 @@ bool beginFileSystem() {
   return fileSystemReady;
 }
 
+bool jsonVarToUnsignedLong(const JSONVar &value, unsigned long &parsedValue) {
+  String rendered = JSON.stringify(value);
+  char *endPtr = nullptr;
+  unsigned long parsed = strtoul(rendered.c_str(), &endPtr, 10);
+
+  if (endPtr == rendered.c_str() || *endPtr != '\0') {
+    return false;
+  }
+
+  parsedValue = parsed;
+  return true;
+}
+
+bool jsonVarToUint8(const JSONVar &value, uint8_t &parsedValue) {
+  unsigned long parsed = 0;
+
+  if (!jsonVarToUnsignedLong(value, parsed) || parsed > 255UL) {
+    return false;
+  }
+
+  parsedValue = (uint8_t)parsed;
+  return true;
+}
+
+bool configFromJson(const JSONVar &json, Config &candidate) {
+  if (!json.hasOwnProperty("waterMaxDuration")) return false;
+  if (!json.hasOwnProperty("loopDelayMs")) return false;
+  if (!json.hasOwnProperty("waterDelayMs")) return false;
+  if (!json.hasOwnProperty("waterLowUs")) return false;
+  if (!json.hasOwnProperty("waterHighUs")) return false;
+  if (!json.hasOwnProperty("waterErrUs")) return false;
+  if (!json.hasOwnProperty("pulseTimeoutUs")) return false;
+  if (!json.hasOwnProperty("nPings")) return false;
+  if (!json.hasOwnProperty("minValidPings")) return false;
+  if (!json.hasOwnProperty("pingGapMs")) return false;
+  if (!json.hasOwnProperty("minValidEchoUs")) return false;
+  if (!json.hasOwnProperty("shortJumpUs")) return false;
+  if (!json.hasOwnProperty("shortConfirmDeltaUs")) return false;
+  if (!json.hasOwnProperty("shortConfirmCount")) return false;
+  if (!json.hasOwnProperty("maxHeldInvalidBursts")) return false;
+
+  if (!jsonVarToUnsignedLong(json["waterMaxDuration"], candidate.waterMaxDuration)) return false;
+  if (!jsonVarToUnsignedLong(json["loopDelayMs"], candidate.loopDelayMs)) return false;
+  if (!jsonVarToUnsignedLong(json["waterDelayMs"], candidate.waterDelayMs)) return false;
+  if (!jsonVarToUnsignedLong(json["waterLowUs"], candidate.waterLowUs)) return false;
+  if (!jsonVarToUnsignedLong(json["waterHighUs"], candidate.waterHighUs)) return false;
+  if (!jsonVarToUnsignedLong(json["waterErrUs"], candidate.waterErrUs)) return false;
+  if (!jsonVarToUnsignedLong(json["pulseTimeoutUs"], candidate.pulseTimeoutUs)) return false;
+  if (!jsonVarToUint8(json["nPings"], candidate.nPings)) return false;
+  if (!jsonVarToUint8(json["minValidPings"], candidate.minValidPings)) return false;
+  if (!jsonVarToUnsignedLong(json["pingGapMs"], candidate.pingGapMs)) return false;
+  if (!jsonVarToUnsignedLong(json["minValidEchoUs"], candidate.minValidEchoUs)) return false;
+  if (!jsonVarToUnsignedLong(json["shortJumpUs"], candidate.shortJumpUs)) return false;
+  if (!jsonVarToUnsignedLong(json["shortConfirmDeltaUs"], candidate.shortConfirmDeltaUs)) return false;
+  if (!jsonVarToUint8(json["shortConfirmCount"], candidate.shortConfirmCount)) return false;
+  if (!jsonVarToUint8(json["maxHeldInvalidBursts"], candidate.maxHeldInvalidBursts)) return false;
+
+  return true;
+}
+
+JSONVar configToJson(const Config &source) {
+  JSONVar json;
+  json["waterMaxDuration"] = source.waterMaxDuration;
+  json["loopDelayMs"] = source.loopDelayMs;
+  json["waterDelayMs"] = source.waterDelayMs;
+  json["waterLowUs"] = source.waterLowUs;
+  json["waterHighUs"] = source.waterHighUs;
+  json["waterErrUs"] = source.waterErrUs;
+  json["pulseTimeoutUs"] = source.pulseTimeoutUs;
+  json["nPings"] = source.nPings;
+  json["minValidPings"] = source.minValidPings;
+  json["pingGapMs"] = source.pingGapMs;
+  json["minValidEchoUs"] = source.minValidEchoUs;
+  json["shortJumpUs"] = source.shortJumpUs;
+  json["shortConfirmDeltaUs"] = source.shortConfirmDeltaUs;
+  json["shortConfirmCount"] = source.shortConfirmCount;
+  json["maxHeldInvalidBursts"] = source.maxHeldInvalidBursts;
+  return json;
+}
+
 bool loadConfigFromFs() {
-  return false;
+  if (!fileSystemReady) {
+    return false;
+  }
+
+  File configFile = LittleFS.open(CONFIG_FILE_PATH, "r");
+  if (!configFile) {
+    return false;
+  }
+
+  String payload = configFile.readString();
+  configFile.close();
+
+  JSONVar json = JSON.parse(payload);
+  if (JSON.typeof(json) == "undefined") {
+    return false;
+  }
+
+  Config candidate = config;
+  if (!configFromJson(json, candidate)) {
+    return false;
+  }
+
+  if (!validateConfig(candidate)) {
+    return false;
+  }
+
+  config = candidate;
+  resetMeasurementState();
+  return true;
 }
 
 bool saveConfigToFs() {
-  return false;
+  if (!fileSystemReady) {
+    return false;
+  }
+
+  File configFile = LittleFS.open(CONFIG_FILE_PATH, "w");
+  if (!configFile) {
+    return false;
+  }
+
+  String payload = JSON.stringify(configToJson(config));
+  size_t bytesWritten = configFile.print(payload);
+  configFile.close();
+  return bytesWritten == payload.length();
 }
 
 static inline unsigned int usToCm(unsigned long echoUs) {
@@ -223,6 +348,7 @@ void setup() {
   Serial.begin(74800);
 
   beginFileSystem();
+  loadConfigFromFs();
 
   if (!validateConfig(config)) {
     config = DEFAULT_CONFIG;
