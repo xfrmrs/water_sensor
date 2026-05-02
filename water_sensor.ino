@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Arduino_JSON.h>
 #include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
 #include <LittleFS.h>
 #include <SimpleKalmanFilter.h>
 
@@ -71,6 +72,9 @@ int count = 0;
 bool filling = false;
 bool fileSystemReady = false;
 bool networkReady = false;
+bool networkReconnectPending = false;
+unsigned long networkReconnectAfterMs = 0;
+String uiStatusMessage = "";
 
 enum NetworkMode {
   NETWORK_MODE_SOFTAP,
@@ -79,6 +83,7 @@ enum NetworkMode {
 
 NetworkMode currentNetworkMode = NETWORK_MODE_SOFTAP;
 String currentNetworkIp = "";
+ESP8266WebServer server(80);
 
 unsigned long lastAcceptedUs = 0;
 unsigned long pendingShortUs = 0;
@@ -107,10 +112,22 @@ JSONVar configToJson(const Config &source);
 bool jsonVarToUnsignedLong(const JSONVar &value, unsigned long &parsedValue);
 bool jsonVarToUint8(const JSONVar &value, uint8_t &parsedValue);
 bool jsonVarToString(const JSONVar &value, String &parsedValue);
+bool wifiSettingsDiffer(const Config &left, const Config &right);
+void applyPendingNetworkChange();
 bool connectToStationMode();
 void applyNetworkMode();
 void printNetworkStatus();
 String currentNetworkModeName();
+void configureWebServer();
+String htmlEscape(const String &value);
+void serviceRuntime(unsigned long durationMs);
+bool parseUnsignedLongArg(const String &name, unsigned long &parsedValue, String &errorMessage);
+bool parseUint8Arg(const String &name, uint8_t &parsedValue, String &errorMessage);
+bool configFromRequest(Config &candidate, String &errorMessage);
+void sendConfigPage(const String &statusMessage);
+void handleRoot();
+void handleSave();
+void handleNotFound();
 void startSoftApMode();
 
 void resetMeasurementState() {
@@ -181,6 +198,13 @@ bool jsonVarToString(const JSONVar &value, String &parsedValue) {
 
   parsedValue = String((const char *)value);
   return true;
+}
+
+bool wifiSettingsDiffer(const Config &left, const Config &right) {
+  return left.wifiStaSsid != right.wifiStaSsid ||
+         left.wifiStaPassword != right.wifiStaPassword ||
+         left.wifiApSsid != right.wifiApSsid ||
+         left.wifiApPassword != right.wifiApPassword;
 }
 
 bool configFromJson(const JSONVar &json, Config &candidate) {
@@ -366,6 +390,30 @@ void applyNetworkMode() {
   }
 }
 
+void applyPendingNetworkChange() {
+  if (!networkReconnectPending) {
+    return;
+  }
+
+  long msUntilReconnect = (long)(networkReconnectAfterMs - millis());
+  if (msUntilReconnect > 0) {
+    return;
+  }
+
+  networkReconnectPending = false;
+  applyNetworkMode();
+  printNetworkStatus();
+  server.stop();
+  server.begin();
+
+  if (currentNetworkMode == NETWORK_MODE_STA) {
+    uiStatusMessage = String(F("Wi-Fi settings applied. Reconnect using the device LAN IP: ")) + currentNetworkIp;
+  } else {
+    uiStatusMessage = String(F("Wi-Fi settings saved, but LAN join failed. Reconnect to the setup AP '")) +
+                      config.wifiApSsid + F("' at ") + currentNetworkIp;
+  }
+}
+
 String currentNetworkModeName() {
   return currentNetworkMode == NETWORK_MODE_STA ? String(F("STA")) : String(F("SoftAP"));
 }
@@ -386,6 +434,271 @@ void printNetworkStatus() {
   Serial.println(networkReady ? F("yes") : F("no"));
   Serial.print(F("Network IP: "));
   Serial.println(currentNetworkIp);
+}
+
+String htmlEscape(const String &value) {
+  String escaped = value;
+  escaped.replace("&", "&amp;");
+  escaped.replace("\"", "&quot;");
+  escaped.replace("<", "&lt;");
+  escaped.replace(">", "&gt;");
+  return escaped;
+}
+
+void serviceRuntime(unsigned long durationMs) {
+  unsigned long startedAt = millis();
+  while ((millis() - startedAt) < durationMs) {
+    server.handleClient();
+    applyPendingNetworkChange();
+
+    unsigned long elapsed = millis() - startedAt;
+    unsigned long remaining = durationMs > elapsed ? (durationMs - elapsed) : 0;
+    unsigned long sliceMs = remaining > 25 ? 25 : remaining;
+    if (sliceMs == 0) {
+      break;
+    }
+
+    delay(sliceMs);
+    yield();
+  }
+}
+
+bool parseUnsignedLongArg(const String &name, unsigned long &parsedValue, String &errorMessage) {
+  if (!server.hasArg(name)) {
+    errorMessage = String(F("Missing field: ")) + name;
+    return false;
+  }
+
+  String rawValue = server.arg(name);
+  rawValue.trim();
+
+  char *endPtr = nullptr;
+  unsigned long parsed = strtoul(rawValue.c_str(), &endPtr, 10);
+  if (endPtr == rawValue.c_str() || *endPtr != '\0') {
+    errorMessage = String(F("Invalid number for: ")) + name;
+    return false;
+  }
+
+  parsedValue = parsed;
+  return true;
+}
+
+bool parseUint8Arg(const String &name, uint8_t &parsedValue, String &errorMessage) {
+  unsigned long parsed = 0;
+  if (!parseUnsignedLongArg(name, parsed, errorMessage) || parsed > 255UL) {
+    if (errorMessage.length() == 0) {
+      errorMessage = String(F("Value out of range for: ")) + name;
+    }
+    return false;
+  }
+
+  parsedValue = (uint8_t)parsed;
+  return true;
+}
+
+bool configFromRequest(Config &candidate, String &errorMessage) {
+  if (!parseUnsignedLongArg("waterMaxDuration", candidate.waterMaxDuration, errorMessage)) return false;
+  if (!parseUnsignedLongArg("loopDelayMs", candidate.loopDelayMs, errorMessage)) return false;
+  if (!parseUnsignedLongArg("waterDelayMs", candidate.waterDelayMs, errorMessage)) return false;
+  if (!parseUnsignedLongArg("waterLowUs", candidate.waterLowUs, errorMessage)) return false;
+  if (!parseUnsignedLongArg("waterHighUs", candidate.waterHighUs, errorMessage)) return false;
+  if (!parseUnsignedLongArg("waterErrUs", candidate.waterErrUs, errorMessage)) return false;
+  if (!parseUnsignedLongArg("pulseTimeoutUs", candidate.pulseTimeoutUs, errorMessage)) return false;
+  if (!parseUint8Arg("nPings", candidate.nPings, errorMessage)) return false;
+  if (!parseUint8Arg("minValidPings", candidate.minValidPings, errorMessage)) return false;
+  if (!parseUnsignedLongArg("pingGapMs", candidate.pingGapMs, errorMessage)) return false;
+  if (!parseUnsignedLongArg("minValidEchoUs", candidate.minValidEchoUs, errorMessage)) return false;
+  if (!parseUnsignedLongArg("shortJumpUs", candidate.shortJumpUs, errorMessage)) return false;
+  if (!parseUnsignedLongArg("shortConfirmDeltaUs", candidate.shortConfirmDeltaUs, errorMessage)) return false;
+  if (!parseUint8Arg("shortConfirmCount", candidate.shortConfirmCount, errorMessage)) return false;
+  if (!parseUint8Arg("maxHeldInvalidBursts", candidate.maxHeldInvalidBursts, errorMessage)) return false;
+
+  candidate.wifiStaSsid = server.arg("wifiStaSsid");
+  candidate.wifiStaPassword = server.arg("wifiStaPassword");
+  candidate.wifiApSsid = server.arg("wifiApSsid");
+  candidate.wifiApPassword = server.arg("wifiApPassword");
+  candidate.wifiStaSsid.trim();
+  candidate.wifiStaPassword.trim();
+  candidate.wifiApSsid.trim();
+  candidate.wifiApPassword.trim();
+  return true;
+}
+
+void sendConfigPage(const String &statusMessage) {
+  String page;
+  page.reserve(5000);
+  page += F("<!doctype html><html><head><meta charset='utf-8'>");
+  page += F("<meta name='viewport' content='width=device-width,initial-scale=1'>");
+  page += F("<title>Water Sensor Config</title>");
+  page += F("<style>body{font-family:Arial,sans-serif;margin:24px;max-width:760px;}");
+  page += F("fieldset{margin-bottom:18px;padding:16px;}label{display:block;margin:8px 0 4px;}");
+  page += F("input{width:100%;padding:8px;box-sizing:border-box;}button{padding:10px 16px;}");
+  page += F(".status{margin-bottom:16px;padding:12px;background:#eef;border:1px solid #99c;}");
+  page += F("</style></head><body>");
+  page += F("<h1>Water Sensor Config</h1>");
+  page += F("<p>Mode: ");
+  page += htmlEscape(currentNetworkModeName());
+  page += F("<br>IP: ");
+  page += htmlEscape(currentNetworkIp);
+  if (currentNetworkMode == NETWORK_MODE_SOFTAP) {
+    page += F("<br>Setup AP: ");
+    page += htmlEscape(config.wifiApSsid);
+  } else {
+    page += F("<br>Joined LAN SSID: ");
+    page += htmlEscape(config.wifiStaSsid);
+  }
+  page += F("</p>");
+
+  if (statusMessage.length() > 0) {
+    page += F("<div class='status'>");
+    page += htmlEscape(statusMessage);
+    page += F("</div>");
+  }
+
+  page += F("<form method='post' action='/save'>");
+  page += F("<fieldset><legend>Water Control</legend>");
+  page += F("<label for='waterMaxDuration'>Water max duration</label>");
+  page += F("<input id='waterMaxDuration' name='waterMaxDuration' type='number' min='1' value='");
+  page += String(config.waterMaxDuration);
+  page += F("'>");
+  page += F("<label for='loopDelayMs'>Loop delay (ms)</label>");
+  page += F("<input id='loopDelayMs' name='loopDelayMs' type='number' min='1' value='");
+  page += String(config.loopDelayMs);
+  page += F("'>");
+  page += F("<label for='waterDelayMs'>Water delay (ms)</label>");
+  page += F("<input id='waterDelayMs' name='waterDelayMs' type='number' min='1' value='");
+  page += String(config.waterDelayMs);
+  page += F("'>");
+  page += F("<label for='waterLowUs'>Low threshold (us)</label>");
+  page += F("<input id='waterLowUs' name='waterLowUs' type='number' min='1' value='");
+  page += String(config.waterLowUs);
+  page += F("'>");
+  page += F("<label for='waterHighUs'>High threshold (us)</label>");
+  page += F("<input id='waterHighUs' name='waterHighUs' type='number' min='1' value='");
+  page += String(config.waterHighUs);
+  page += F("'>");
+  page += F("<label for='waterErrUs'>Error threshold (us)</label>");
+  page += F("<input id='waterErrUs' name='waterErrUs' type='number' min='1' value='");
+  page += String(config.waterErrUs);
+  page += F("'>");
+  page += F("</fieldset>");
+
+  page += F("<fieldset><legend>Sensor Filtering</legend>");
+  page += F("<label for='pulseTimeoutUs'>Pulse timeout (us)</label>");
+  page += F("<input id='pulseTimeoutUs' name='pulseTimeoutUs' type='number' min='1' value='");
+  page += String(config.pulseTimeoutUs);
+  page += F("'>");
+  page += F("<label for='nPings'>Ping count</label>");
+  page += F("<input id='nPings' name='nPings' type='number' min='1' value='");
+  page += String(config.nPings);
+  page += F("'>");
+  page += F("<label for='minValidPings'>Minimum valid pings</label>");
+  page += F("<input id='minValidPings' name='minValidPings' type='number' min='1' value='");
+  page += String(config.minValidPings);
+  page += F("'>");
+  page += F("<label for='pingGapMs'>Ping gap (ms)</label>");
+  page += F("<input id='pingGapMs' name='pingGapMs' type='number' min='1' value='");
+  page += String(config.pingGapMs);
+  page += F("'>");
+  page += F("<label for='minValidEchoUs'>Minimum valid echo (us)</label>");
+  page += F("<input id='minValidEchoUs' name='minValidEchoUs' type='number' min='1' value='");
+  page += String(config.minValidEchoUs);
+  page += F("'>");
+  page += F("<label for='shortJumpUs'>Short jump reject window (us)</label>");
+  page += F("<input id='shortJumpUs' name='shortJumpUs' type='number' min='1' value='");
+  page += String(config.shortJumpUs);
+  page += F("'>");
+  page += F("<label for='shortConfirmDeltaUs'>Short confirm delta (us)</label>");
+  page += F("<input id='shortConfirmDeltaUs' name='shortConfirmDeltaUs' type='number' min='1' value='");
+  page += String(config.shortConfirmDeltaUs);
+  page += F("'>");
+  page += F("<label for='shortConfirmCount'>Short confirm count</label>");
+  page += F("<input id='shortConfirmCount' name='shortConfirmCount' type='number' min='1' value='");
+  page += String(config.shortConfirmCount);
+  page += F("'>");
+  page += F("<label for='maxHeldInvalidBursts'>Max held invalid bursts</label>");
+  page += F("<input id='maxHeldInvalidBursts' name='maxHeldInvalidBursts' type='number' min='1' value='");
+  page += String(config.maxHeldInvalidBursts);
+  page += F("'>");
+  page += F("</fieldset>");
+
+  page += F("<fieldset><legend>Wi-Fi</legend>");
+  page += F("<label for='wifiStaSsid'>Local Wi-Fi SSID</label>");
+  page += F("<input id='wifiStaSsid' name='wifiStaSsid' value='");
+  page += htmlEscape(config.wifiStaSsid);
+  page += F("'>");
+  page += F("<label for='wifiStaPassword'>Local Wi-Fi password</label>");
+  page += F("<input id='wifiStaPassword' name='wifiStaPassword' type='password' value='");
+  page += htmlEscape(config.wifiStaPassword);
+  page += F("'>");
+  page += F("<label for='wifiApSsid'>Setup AP SSID</label>");
+  page += F("<input id='wifiApSsid' name='wifiApSsid' value='");
+  page += htmlEscape(config.wifiApSsid);
+  page += F("'>");
+  page += F("<label for='wifiApPassword'>Setup AP password</label>");
+  page += F("<input id='wifiApPassword' name='wifiApPassword' type='password' value='");
+  page += htmlEscape(config.wifiApPassword);
+  page += F("'>");
+  page += F("</fieldset>");
+
+  page += F("<button type='submit'>Save Settings</button></form></body></html>");
+  server.send(200, "text/html", page);
+}
+
+void handleRoot() {
+  sendConfigPage(uiStatusMessage);
+}
+
+void handleSave() {
+  Config candidate = config;
+  Config previousConfig = config;
+  String errorMessage;
+  bool networkChanged = false;
+
+  if (!configFromRequest(candidate, errorMessage)) {
+    sendConfigPage(errorMessage);
+    return;
+  }
+
+  if (!validateConfig(candidate)) {
+    sendConfigPage(F("Validation failed. Check threshold ordering and Wi-Fi settings."));
+    return;
+  }
+
+  networkChanged = wifiSettingsDiffer(previousConfig, candidate);
+  config = candidate;
+  resetMeasurementState();
+
+  if (!saveConfigToFs()) {
+    config = previousConfig;
+    resetMeasurementState();
+    sendConfigPage(F("Settings updated in memory but could not be saved to LittleFS."));
+    return;
+  }
+
+  if (networkChanged) {
+    uiStatusMessage = String(F("Settings saved. The device will now try to join the configured LAN. ")) +
+                      F("If the page disconnects, reconnect to the LAN if it succeeds or back to the setup AP if it fails.");
+    networkReconnectPending = true;
+    networkReconnectAfterMs = millis() + 1000UL;
+    server.sendHeader("Connection", "close");
+    sendConfigPage(uiStatusMessage);
+    return;
+  }
+
+  uiStatusMessage = F("Settings saved.");
+  sendConfigPage(uiStatusMessage);
+}
+
+void handleNotFound() {
+  server.send(404, "text/plain", "Not found");
+}
+
+void configureWebServer() {
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/save", HTTP_POST, handleSave);
+  server.onNotFound(handleNotFound);
+  server.begin();
 }
 
 static inline unsigned int usToCm(unsigned long echoUs) {
@@ -508,11 +821,16 @@ void setup() {
 
   applyNetworkMode();
   printNetworkStatus();
+  configureWebServer();
 }
 
 // The loop routine runs over and over again forever:
 void loop() {
-  delay(filling ? config.waterDelayMs : config.loopDelayMs);
+  server.handleClient();
+  applyPendingNetworkChange();
+  serviceRuntime(filling ? config.waterDelayMs : config.loopDelayMs);
+  server.handleClient();
+  applyPendingNetworkChange();
 
   unsigned long waterLevelUs = WaterLevel();
 
