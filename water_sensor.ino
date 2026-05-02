@@ -34,6 +34,10 @@ struct Config {
   unsigned long shortConfirmDeltaUs;
   uint8_t shortConfirmCount;
   uint8_t maxHeldInvalidBursts;
+  String wifiStaSsid;
+  String wifiStaPassword;
+  String wifiApSsid;
+  String wifiApPassword;
 };
 
 const Config DEFAULT_CONFIG = {
@@ -51,7 +55,11 @@ const Config DEFAULT_CONFIG = {
   250UL,
   120UL,
   2,
-  3
+  3,
+  "",
+  "",
+  "WaterSensorSetup",
+  ""
 };
 
 // Global variables
@@ -87,6 +95,7 @@ bool configFromJson(const JSONVar &json, Config &candidate);
 JSONVar configToJson(const Config &source);
 bool jsonVarToUnsignedLong(const JSONVar &value, unsigned long &parsedValue);
 bool jsonVarToUint8(const JSONVar &value, uint8_t &parsedValue);
+bool jsonVarToString(const JSONVar &value, String &parsedValue);
 
 void resetMeasurementState() {
   lastAcceptedUs = 0;
@@ -108,6 +117,8 @@ bool validateConfig(const Config &candidate) {
   if (candidate.minValidEchoUs == 0) return false;
   if (candidate.shortConfirmCount == 0) return false;
   if (candidate.maxHeldInvalidBursts == 0) return false;
+  if (candidate.wifiApSsid.length() == 0) return false;
+  if (candidate.wifiApPassword.length() > 0 && candidate.wifiApPassword.length() < 8) return false;
   return true;
 }
 
@@ -147,6 +158,15 @@ bool jsonVarToUint8(const JSONVar &value, uint8_t &parsedValue) {
   return true;
 }
 
+bool jsonVarToString(const JSONVar &value, String &parsedValue) {
+  if (JSON.typeof(value) != "string") {
+    return false;
+  }
+
+  parsedValue = String((const char *)value);
+  return true;
+}
+
 bool configFromJson(const JSONVar &json, Config &candidate) {
   if (!json.hasOwnProperty("waterMaxDuration")) return false;
   if (!json.hasOwnProperty("loopDelayMs")) return false;
@@ -163,6 +183,10 @@ bool configFromJson(const JSONVar &json, Config &candidate) {
   if (!json.hasOwnProperty("shortConfirmDeltaUs")) return false;
   if (!json.hasOwnProperty("shortConfirmCount")) return false;
   if (!json.hasOwnProperty("maxHeldInvalidBursts")) return false;
+  if (!json.hasOwnProperty("wifiStaSsid")) return false;
+  if (!json.hasOwnProperty("wifiStaPassword")) return false;
+  if (!json.hasOwnProperty("wifiApSsid")) return false;
+  if (!json.hasOwnProperty("wifiApPassword")) return false;
 
   if (!jsonVarToUnsignedLong(json["waterMaxDuration"], candidate.waterMaxDuration)) return false;
   if (!jsonVarToUnsignedLong(json["loopDelayMs"], candidate.loopDelayMs)) return false;
@@ -179,6 +203,10 @@ bool configFromJson(const JSONVar &json, Config &candidate) {
   if (!jsonVarToUnsignedLong(json["shortConfirmDeltaUs"], candidate.shortConfirmDeltaUs)) return false;
   if (!jsonVarToUint8(json["shortConfirmCount"], candidate.shortConfirmCount)) return false;
   if (!jsonVarToUint8(json["maxHeldInvalidBursts"], candidate.maxHeldInvalidBursts)) return false;
+  if (!jsonVarToString(json["wifiStaSsid"], candidate.wifiStaSsid)) return false;
+  if (!jsonVarToString(json["wifiStaPassword"], candidate.wifiStaPassword)) return false;
+  if (!jsonVarToString(json["wifiApSsid"], candidate.wifiApSsid)) return false;
+  if (!jsonVarToString(json["wifiApPassword"], candidate.wifiApPassword)) return false;
 
   return true;
 }
@@ -200,6 +228,10 @@ JSONVar configToJson(const Config &source) {
   json["shortConfirmDeltaUs"] = source.shortConfirmDeltaUs;
   json["shortConfirmCount"] = source.shortConfirmCount;
   json["maxHeldInvalidBursts"] = source.maxHeldInvalidBursts;
+  json["wifiStaSsid"] = source.wifiStaSsid;
+  json["wifiStaPassword"] = source.wifiStaPassword;
+  json["wifiApSsid"] = source.wifiApSsid;
+  json["wifiApPassword"] = source.wifiApPassword;
   return json;
 }
 
