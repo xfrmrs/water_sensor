@@ -22,9 +22,9 @@ Install these Arduino libraries/core components:
 1. Upload the sketch.
 2. Upload the `data/config.json` filesystem image to LittleFS.
 3. Connect to the setup AP named `WaterSensorSetup`.
-4. Open the device page at `http://192.168.4.1/`.
+4. Open the device page at `http://10.0.0.47/`.
 5. Enter your local Wi-Fi SSID/password and any water-level tuning values.
-6. Save the form. The device will try to join your local LAN. If that fails, it falls back to the setup AP.
+6. Save the form. The device will try to join your local LAN at `10.0.0.47`. If that fails, it falls back to the setup AP at `10.0.0.47`.
 
 ## Config File
 

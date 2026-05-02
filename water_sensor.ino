@@ -20,6 +20,9 @@ static const unsigned long SERIAL_BAUD = 74880UL;
 static const char *CONFIG_FILE_PATH = "/config.json";
 static const char *CONFIG_TEMP_PATH = "/config.tmp";
 static const unsigned long WIFI_STA_CONNECT_TIMEOUT_MS = 15000UL;
+static const IPAddress DEFAULT_WEB_IP(10, 0, 0, 47);
+static const IPAddress DEFAULT_WEB_GATEWAY(10, 0, 0, 1);
+static const IPAddress DEFAULT_WEB_SUBNET(255, 255, 255, 0);
 
 struct Config {
   unsigned long waterMaxDuration;
@@ -372,6 +375,7 @@ bool connectToStationMode() {
   WiFi.softAPdisconnect(true);
   WiFi.disconnect(true);
   WiFi.mode(WIFI_STA);
+  WiFi.config(DEFAULT_WEB_IP, DEFAULT_WEB_GATEWAY, DEFAULT_WEB_SUBNET);
   WiFi.begin(config.wifiStaSsid.c_str(), config.wifiStaPassword.c_str());
 
   unsigned long startedAt = millis();
@@ -398,6 +402,7 @@ void startSoftApMode() {
   WiFi.softAPdisconnect(true);
   WiFi.disconnect(true);
   WiFi.mode(WIFI_AP);
+  WiFi.softAPConfig(DEFAULT_WEB_IP, DEFAULT_WEB_IP, DEFAULT_WEB_SUBNET);
 
   const char *apPassword = config.wifiApPassword.length() > 0 ? config.wifiApPassword.c_str() : nullptr;
   networkReady = WiFi.softAP(config.wifiApSsid.c_str(), apPassword);
