@@ -12,27 +12,7 @@
 #define WATER 13  // white w/black stripe
 #define ERRLED 16 // (on-board)
 
-
-// Delay constants
-#define LOOP_DELAY 1000
-#define WATER_DELAY 1500
-
-// Water level thresholds in echo microseconds.
-// Larger echo time means the water surface is farther from the sensor.
-#define WATER_LOW_US 1200UL
-#define WATER_HIGH_US 500UL
-#define WATER_ERR_US 2500UL
-
-// Measurement filtering
-#define PULSE_TIMEOUT_US 5000UL
-#define N_PINGS 5
-#define MIN_VALID_PINGS 3
-#define PING_GAP_MS 60
-#define MIN_VALID_ECHO_US 232UL
-#define SHORT_JUMP_US 250UL
-#define SHORT_CONFIRM_DELTA_US 120UL
-#define SHORT_CONFIRM_COUNT 2
-#define MAX_HELD_INVALID_BURSTS 3
+static const uint8_t MAX_CONFIGURABLE_PINGS = 12;
 
 struct Config {
   unsigned long waterMaxDuration;
@@ -53,21 +33,21 @@ struct Config {
 };
 
 const Config DEFAULT_CONFIG = {
-  WATER_MAX_DURATION,
-  LOOP_DELAY,
-  WATER_DELAY,
-  WATER_LOW_US,
-  WATER_HIGH_US,
-  WATER_ERR_US,
-  PULSE_TIMEOUT_US,
-  N_PINGS,
-  MIN_VALID_PINGS,
-  PING_GAP_MS,
-  MIN_VALID_ECHO_US,
-  SHORT_JUMP_US,
-  SHORT_CONFIRM_DELTA_US,
-  SHORT_CONFIRM_COUNT,
-  MAX_HELD_INVALID_BURSTS
+  90,
+  1000,
+  1500,
+  1200UL,
+  500UL,
+  2500UL,
+  5000UL,
+  5,
+  3,
+  60,
+  232UL,
+  250UL,
+  120UL,
+  2,
+  3
 };
 
 // Global variables
@@ -93,6 +73,31 @@ SimpleKalmanFilter simpleKalmanFilter(5, 2, 0.01);
 unsigned long WaterLevel();
 bool WaterLow(unsigned long waterLevelUs);
 bool WaterHigh(unsigned long waterLevelUs);
+void resetMeasurementState();
+bool validateConfig(const Config &candidate);
+
+void resetMeasurementState() {
+  lastAcceptedUs = 0;
+  pendingShortUs = 0;
+  pendingShortCount = 0;
+  invalidBurstCount = 0;
+}
+
+bool validateConfig(const Config &candidate) {
+  if (candidate.waterMaxDuration == 0) return false;
+  if (candidate.loopDelayMs == 0) return false;
+  if (candidate.waterDelayMs == 0) return false;
+  if (candidate.waterHighUs >= candidate.waterLowUs) return false;
+  if (candidate.waterLowUs >= candidate.waterErrUs) return false;
+  if (candidate.pulseTimeoutUs < candidate.waterErrUs) return false;
+  if (candidate.nPings == 0 || candidate.nPings > MAX_CONFIGURABLE_PINGS) return false;
+  if (candidate.minValidPings == 0 || candidate.minValidPings > candidate.nPings) return false;
+  if (candidate.pingGapMs == 0) return false;
+  if (candidate.minValidEchoUs == 0) return false;
+  if (candidate.shortConfirmCount == 0) return false;
+  if (candidate.maxHeldInvalidBursts == 0) return false;
+  return true;
+}
 
 static inline unsigned int usToCm(unsigned long echoUs) {
   return (unsigned int)((echoUs + 29UL) / 58UL);
@@ -125,7 +130,7 @@ static void sortEchoSamples(unsigned long *samples, uint8_t countSamples) {
 }
 
 static unsigned long readMedianEchoUs() {
-  unsigned long samples[N_PINGS];
+  unsigned long samples[MAX_CONFIGURABLE_PINGS];
   uint8_t validCount = 0;
 
   for (uint8_t i = 0; i < config.nPings; ++i) {
@@ -188,6 +193,12 @@ static unsigned long deglitchShortEchoUs(unsigned long candidateUs) {
 }
 
 void setup() {
+  if (!validateConfig(config)) {
+    config = DEFAULT_CONFIG;
+  }
+
+  resetMeasurementState();
+
   pinMode(WATER, OUTPUT);
   pinMode(ERRLED, OUTPUT);
   pinMode(TRIG, OUTPUT);
