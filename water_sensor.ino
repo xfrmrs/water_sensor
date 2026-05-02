@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <Arduino_JSON.h>
+#include <ESP8266WiFi.h>
 #include <LittleFS.h>
 #include <SimpleKalmanFilter.h>
 
@@ -17,6 +18,7 @@
 static const uint8_t MAX_CONFIGURABLE_PINGS = 12;
 static const char *CONFIG_FILE_PATH = "/config.json";
 static const char *CONFIG_TEMP_PATH = "/config.tmp";
+static const unsigned long WIFI_STA_CONNECT_TIMEOUT_MS = 15000UL;
 
 struct Config {
   unsigned long waterMaxDuration;
@@ -34,6 +36,10 @@ struct Config {
   unsigned long shortConfirmDeltaUs;
   uint8_t shortConfirmCount;
   uint8_t maxHeldInvalidBursts;
+  String wifiStaSsid;
+  String wifiStaPassword;
+  String wifiApSsid;
+  String wifiApPassword;
 };
 
 const Config DEFAULT_CONFIG = {
@@ -51,7 +57,11 @@ const Config DEFAULT_CONFIG = {
   250UL,
   120UL,
   2,
-  3
+  3,
+  "",
+  "",
+  "WaterSensorSetup",
+  ""
 };
 
 // Global variables
@@ -60,6 +70,15 @@ Config config = DEFAULT_CONFIG;
 int count = 0;
 bool filling = false;
 bool fileSystemReady = false;
+bool networkReady = false;
+
+enum NetworkMode {
+  NETWORK_MODE_SOFTAP,
+  NETWORK_MODE_STA
+};
+
+NetworkMode currentNetworkMode = NETWORK_MODE_SOFTAP;
+String currentNetworkIp = "";
 
 unsigned long lastAcceptedUs = 0;
 unsigned long pendingShortUs = 0;
@@ -87,6 +106,12 @@ bool configFromJson(const JSONVar &json, Config &candidate);
 JSONVar configToJson(const Config &source);
 bool jsonVarToUnsignedLong(const JSONVar &value, unsigned long &parsedValue);
 bool jsonVarToUint8(const JSONVar &value, uint8_t &parsedValue);
+bool jsonVarToString(const JSONVar &value, String &parsedValue);
+bool connectToStationMode();
+void applyNetworkMode();
+void printNetworkStatus();
+String currentNetworkModeName();
+void startSoftApMode();
 
 void resetMeasurementState() {
   lastAcceptedUs = 0;
@@ -108,6 +133,8 @@ bool validateConfig(const Config &candidate) {
   if (candidate.minValidEchoUs == 0) return false;
   if (candidate.shortConfirmCount == 0) return false;
   if (candidate.maxHeldInvalidBursts == 0) return false;
+  if (candidate.wifiApSsid.length() == 0) return false;
+  if (candidate.wifiApPassword.length() > 0 && candidate.wifiApPassword.length() < 8) return false;
   return true;
 }
 
@@ -147,6 +174,15 @@ bool jsonVarToUint8(const JSONVar &value, uint8_t &parsedValue) {
   return true;
 }
 
+bool jsonVarToString(const JSONVar &value, String &parsedValue) {
+  if (JSON.typeof(value) != "string") {
+    return false;
+  }
+
+  parsedValue = String((const char *)value);
+  return true;
+}
+
 bool configFromJson(const JSONVar &json, Config &candidate) {
   if (!json.hasOwnProperty("waterMaxDuration")) return false;
   if (!json.hasOwnProperty("loopDelayMs")) return false;
@@ -163,6 +199,10 @@ bool configFromJson(const JSONVar &json, Config &candidate) {
   if (!json.hasOwnProperty("shortConfirmDeltaUs")) return false;
   if (!json.hasOwnProperty("shortConfirmCount")) return false;
   if (!json.hasOwnProperty("maxHeldInvalidBursts")) return false;
+  if (!json.hasOwnProperty("wifiStaSsid")) return false;
+  if (!json.hasOwnProperty("wifiStaPassword")) return false;
+  if (!json.hasOwnProperty("wifiApSsid")) return false;
+  if (!json.hasOwnProperty("wifiApPassword")) return false;
 
   if (!jsonVarToUnsignedLong(json["waterMaxDuration"], candidate.waterMaxDuration)) return false;
   if (!jsonVarToUnsignedLong(json["loopDelayMs"], candidate.loopDelayMs)) return false;
@@ -179,6 +219,10 @@ bool configFromJson(const JSONVar &json, Config &candidate) {
   if (!jsonVarToUnsignedLong(json["shortConfirmDeltaUs"], candidate.shortConfirmDeltaUs)) return false;
   if (!jsonVarToUint8(json["shortConfirmCount"], candidate.shortConfirmCount)) return false;
   if (!jsonVarToUint8(json["maxHeldInvalidBursts"], candidate.maxHeldInvalidBursts)) return false;
+  if (!jsonVarToString(json["wifiStaSsid"], candidate.wifiStaSsid)) return false;
+  if (!jsonVarToString(json["wifiStaPassword"], candidate.wifiStaPassword)) return false;
+  if (!jsonVarToString(json["wifiApSsid"], candidate.wifiApSsid)) return false;
+  if (!jsonVarToString(json["wifiApPassword"], candidate.wifiApPassword)) return false;
 
   return true;
 }
@@ -200,6 +244,10 @@ JSONVar configToJson(const Config &source) {
   json["shortConfirmDeltaUs"] = source.shortConfirmDeltaUs;
   json["shortConfirmCount"] = source.shortConfirmCount;
   json["maxHeldInvalidBursts"] = source.maxHeldInvalidBursts;
+  json["wifiStaSsid"] = source.wifiStaSsid;
+  json["wifiStaPassword"] = source.wifiStaPassword;
+  json["wifiApSsid"] = source.wifiApSsid;
+  json["wifiApPassword"] = source.wifiApPassword;
   return json;
 }
 
@@ -269,6 +317,75 @@ bool saveConfigToFs() {
   }
 
   return true;
+}
+
+bool connectToStationMode() {
+  if (config.wifiStaSsid.length() == 0) {
+    return false;
+  }
+
+  WiFi.softAPdisconnect(true);
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(config.wifiStaSsid.c_str(), config.wifiStaPassword.c_str());
+
+  unsigned long startedAt = millis();
+  while ((WiFi.status() != WL_CONNECTED) &&
+         ((millis() - startedAt) < WIFI_STA_CONNECT_TIMEOUT_MS)) {
+    delay(250);
+    yield();
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    WiFi.disconnect(true);
+    networkReady = false;
+    currentNetworkIp = "";
+    return false;
+  }
+
+  networkReady = true;
+  currentNetworkMode = NETWORK_MODE_STA;
+  currentNetworkIp = WiFi.localIP().toString();
+  return true;
+}
+
+void startSoftApMode() {
+  WiFi.softAPdisconnect(true);
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_AP);
+
+  const char *apPassword = config.wifiApPassword.length() > 0 ? config.wifiApPassword.c_str() : nullptr;
+  networkReady = WiFi.softAP(config.wifiApSsid.c_str(), apPassword);
+  currentNetworkMode = NETWORK_MODE_SOFTAP;
+  currentNetworkIp = WiFi.softAPIP().toString();
+}
+
+void applyNetworkMode() {
+  if (!connectToStationMode()) {
+    startSoftApMode();
+  }
+}
+
+String currentNetworkModeName() {
+  return currentNetworkMode == NETWORK_MODE_STA ? String(F("STA")) : String(F("SoftAP"));
+}
+
+void printNetworkStatus() {
+  Serial.print(F("Network mode: "));
+  Serial.println(currentNetworkModeName());
+
+  if (currentNetworkMode == NETWORK_MODE_STA) {
+    Serial.print(F("Joined local Wi-Fi: "));
+    Serial.println(config.wifiStaSsid);
+  } else {
+    Serial.print(F("SoftAP SSID: "));
+    Serial.println(config.wifiApSsid);
+  }
+
+  Serial.print(F("Network ready: "));
+  Serial.println(networkReady ? F("yes") : F("no"));
+  Serial.print(F("Network IP: "));
+  Serial.println(currentNetworkIp);
 }
 
 static inline unsigned int usToCm(unsigned long echoUs) {
@@ -388,6 +505,9 @@ void setup() {
   if (DEBUG) {
     Serial.println(F("Config runtime initialized"));
   }
+
+  applyNetworkMode();
+  printNetworkStatus();
 }
 
 // The loop routine runs over and over again forever:
