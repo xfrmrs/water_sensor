@@ -208,6 +208,10 @@ bool loadConfigFromFs() {
     return false;
   }
 
+  if (!LittleFS.exists(CONFIG_FILE_PATH)) {
+    return false;
+  }
+
   File configFile = LittleFS.open(CONFIG_FILE_PATH, "r");
   if (!configFile) {
     return false;
@@ -240,7 +244,7 @@ bool saveConfigToFs() {
     return false;
   }
 
-  File configFile = LittleFS.open(CONFIG_FILE_PATH, "w");
+  File configFile = LittleFS.open(CONFIG_TEMP_PATH, "w");
   if (!configFile) {
     return false;
   }
@@ -248,7 +252,23 @@ bool saveConfigToFs() {
   String payload = JSON.stringify(configToJson(config));
   size_t bytesWritten = configFile.print(payload);
   configFile.close();
-  return bytesWritten == payload.length();
+
+  if (bytesWritten != payload.length()) {
+    LittleFS.remove(CONFIG_TEMP_PATH);
+    return false;
+  }
+
+  if (LittleFS.exists(CONFIG_FILE_PATH) && !LittleFS.remove(CONFIG_FILE_PATH)) {
+    LittleFS.remove(CONFIG_TEMP_PATH);
+    return false;
+  }
+
+  if (!LittleFS.rename(CONFIG_TEMP_PATH, CONFIG_FILE_PATH)) {
+    LittleFS.remove(CONFIG_TEMP_PATH);
+    return false;
+  }
+
+  return true;
 }
 
 static inline unsigned int usToCm(unsigned long echoUs) {
@@ -348,12 +368,11 @@ void setup() {
   Serial.begin(74800);
 
   beginFileSystem();
-  loadConfigFromFs();
-
-  if (!validateConfig(config)) {
+  if (!loadConfigFromFs() || !validateConfig(config)) {
     config = DEFAULT_CONFIG;
+    resetMeasurementState();
+    saveConfigToFs();
   }
-
   resetMeasurementState();
 
   pinMode(WATER, OUTPUT);
