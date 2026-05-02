@@ -34,7 +34,45 @@
 #define SHORT_CONFIRM_COUNT 2
 #define MAX_HELD_INVALID_BURSTS 3
 
+struct Config {
+  unsigned long waterMaxDuration;
+  unsigned long loopDelayMs;
+  unsigned long waterDelayMs;
+  unsigned long waterLowUs;
+  unsigned long waterHighUs;
+  unsigned long waterErrUs;
+  unsigned long pulseTimeoutUs;
+  uint8_t nPings;
+  uint8_t minValidPings;
+  unsigned long pingGapMs;
+  unsigned long minValidEchoUs;
+  unsigned long shortJumpUs;
+  unsigned long shortConfirmDeltaUs;
+  uint8_t shortConfirmCount;
+  uint8_t maxHeldInvalidBursts;
+};
+
+const Config DEFAULT_CONFIG = {
+  WATER_MAX_DURATION,
+  LOOP_DELAY,
+  WATER_DELAY,
+  WATER_LOW_US,
+  WATER_HIGH_US,
+  WATER_ERR_US,
+  PULSE_TIMEOUT_US,
+  N_PINGS,
+  MIN_VALID_PINGS,
+  PING_GAP_MS,
+  MIN_VALID_ECHO_US,
+  SHORT_JUMP_US,
+  SHORT_CONFIRM_DELTA_US,
+  SHORT_CONFIRM_COUNT,
+  MAX_HELD_INVALID_BURSTS
+};
+
 // Global variables
+Config config = DEFAULT_CONFIG;
+
 int count = 0;
 bool filling = false;
 
