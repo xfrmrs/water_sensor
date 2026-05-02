@@ -18,6 +18,7 @@
 static const uint8_t MAX_CONFIGURABLE_PINGS = 12;
 static const char *CONFIG_FILE_PATH = "/config.json";
 static const char *CONFIG_TEMP_PATH = "/config.tmp";
+static const unsigned long WIFI_STA_CONNECT_TIMEOUT_MS = 15000UL;
 
 struct Config {
   unsigned long waterMaxDuration;
@@ -106,6 +107,8 @@ JSONVar configToJson(const Config &source);
 bool jsonVarToUnsignedLong(const JSONVar &value, unsigned long &parsedValue);
 bool jsonVarToUint8(const JSONVar &value, uint8_t &parsedValue);
 bool jsonVarToString(const JSONVar &value, String &parsedValue);
+bool connectToStationMode();
+void applyNetworkMode();
 void startSoftApMode();
 
 void resetMeasurementState() {
@@ -314,6 +317,36 @@ bool saveConfigToFs() {
   return true;
 }
 
+bool connectToStationMode() {
+  if (config.wifiStaSsid.length() == 0) {
+    return false;
+  }
+
+  WiFi.softAPdisconnect(true);
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(config.wifiStaSsid.c_str(), config.wifiStaPassword.c_str());
+
+  unsigned long startedAt = millis();
+  while ((WiFi.status() != WL_CONNECTED) &&
+         ((millis() - startedAt) < WIFI_STA_CONNECT_TIMEOUT_MS)) {
+    delay(250);
+    yield();
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    WiFi.disconnect(true);
+    networkReady = false;
+    currentNetworkIp = "";
+    return false;
+  }
+
+  networkReady = true;
+  currentNetworkMode = NETWORK_MODE_STA;
+  currentNetworkIp = WiFi.localIP().toString();
+  return true;
+}
+
 void startSoftApMode() {
   WiFi.softAPdisconnect(true);
   WiFi.disconnect(true);
@@ -323,6 +356,12 @@ void startSoftApMode() {
   networkReady = WiFi.softAP(config.wifiApSsid.c_str(), apPassword);
   currentNetworkMode = NETWORK_MODE_SOFTAP;
   currentNetworkIp = WiFi.softAPIP().toString();
+}
+
+void applyNetworkMode() {
+  if (!connectToStationMode()) {
+    startSoftApMode();
+  }
 }
 
 static inline unsigned int usToCm(unsigned long echoUs) {
@@ -443,7 +482,7 @@ void setup() {
     Serial.println(F("Config runtime initialized"));
   }
 
-  startSoftApMode();
+  applyNetworkMode();
 }
 
 // The loop routine runs over and over again forever:
