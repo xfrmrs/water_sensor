@@ -1,4 +1,14 @@
 {
+  "debugControlLogs": false,
+  "debugMeasurementLogs": true,
+  "trigPin": 4,
+  "echoPin": 5,
+  "waterPin": 13,
+  "errLedPin": 16,
+  "serialBaud": 74880,
+  "kalmanMeasurementError": 5.0,
+  "kalmanEstimateError": 2.0,
+  "kalmanProcessNoise": 0.01,
   "waterMaxDuration": 90,
   "loopDelayMs": 1000,
   "waterDelayMs": 1500,
@@ -17,5 +27,12 @@
   "wifiStaSsid": "",
   "wifiStaPassword": "",
   "wifiApSsid": "WaterSensorSetup",
-  "wifiApPassword": ""
+  "wifiApPassword": "",
+  "wifiStaIp": "10.0.0.47",
+  "wifiStaGateway": "10.0.0.1",
+  "wifiStaSubnet": "255.0.0.0",
+  "wifiApIp": "10.0.0.47",
+  "wifiApGateway": "10.0.0.47",
+  "wifiApSubnet": "255.0.0.0",
+  "wifiStaConnectTimeoutMs": 15000
 }

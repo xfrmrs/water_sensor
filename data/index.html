@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Water Sensor Dashboard</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Water sensor controller</p>
+        <h1>Reservoir Live Dashboard</h1>
+        <p id="connectionSummary" class="hero-subhead">Loading current device state...</p>
+      </div>
+      <div class="hero-actions">
+        <span id="socketBadge" class="socket-badge socket-badge--offline">Socket offline</span>
+      </div>
+    </header>
+
+    <div id="statusBanner" class="banner banner--info hidden"></div>
+
+    <main class="layout">
+      <div class="tab-shell">
+        <div class="tab-row tab-row--main" role="tablist" aria-label="Main dashboard sections">
+          <button class="tab-button is-active" type="button" data-tab-group="main" data-tab-target="liveTelemetry">Live telemetry</button>
+          <button class="tab-button" type="button" data-tab-group="main" data-tab-target="runtimeConfiguration">Runtime configuration</button>
+        </div>
+
+        <section class="tab-panel is-active" data-tab-group="main" data-tab-id="liveTelemetry">
+          <section class="panel panel--live">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Live telemetry</p>
+                <h2>Reservoir telemetry</h2>
+              </div>
+              <p id="runtimeSummary" class="panel-meta">Waiting for device state...</p>
+            </div>
+
+            <div class="tab-row tab-row--sub" role="tablist" aria-label="Live telemetry views">
+              <button class="tab-button tab-button--sub is-active" type="button" data-tab-group="telemetry" data-tab-target="currentMeasurements">Current measurements</button>
+              <button class="tab-button tab-button--sub" type="button" data-tab-group="telemetry" data-tab-target="liveGraph">Live graph</button>
+            </div>
+
+            <div class="tab-panel is-active" data-tab-group="telemetry" data-tab-id="currentMeasurements">
+              <div class="metric-grid">
+                <article class="metric-card">
+                  <p class="metric-card__label">Raw</p>
+                  <p id="rawValue" class="metric-card__value">--</p>
+                  <p id="rawSubvalue" class="metric-card__subvalue">--</p>
+                </article>
+                <article class="metric-card">
+                  <p class="metric-card__label">Accepted</p>
+                  <p id="acceptedValue" class="metric-card__value">--</p>
+                  <p id="acceptedSubvalue" class="metric-card__subvalue">--</p>
+                </article>
+                <article class="metric-card">
+                  <p class="metric-card__label">Filtered</p>
+                  <p id="filteredValue" class="metric-card__value">--</p>
+                  <p id="filteredSubvalue" class="metric-card__subvalue">--</p>
+                </article>
+                <article class="metric-card">
+                  <p class="metric-card__label">State</p>
+                  <p id="stateValue" class="metric-card__value">--</p>
+                  <p id="stateSubvalue" class="metric-card__subvalue">--</p>
+                </article>
+                <article class="metric-card">
+                  <p class="metric-card__label">Pump</p>
+                  <p id="pumpValue" class="metric-card__value">--</p>
+                  <p id="pumpSubvalue" class="metric-card__subvalue">--</p>
+                </article>
+                <article class="metric-card">
+                  <p class="metric-card__label">Network</p>
+                  <p id="networkValue" class="metric-card__value">--</p>
+                  <p id="networkSubvalue" class="metric-card__subvalue">--</p>
+                </article>
+              </div>
+            </div>
+
+            <div class="tab-panel" data-tab-group="telemetry" data-tab-id="liveGraph">
+              <div class="graph-panel graph-panel--tabbed">
+                <div class="graph-panel__head">
+                  <div>
+                    <p class="eyebrow">Live graph</p>
+                    <h3>Recent Readings</h3>
+                  </div>
+                  <div class="toggle-row">
+                    <label class="toggle-pill">
+                      <input id="showFiltered" type="checkbox" checked>
+                      <span>Filtered</span>
+                    </label>
+                    <label class="toggle-pill">
+                      <input id="showAccepted" type="checkbox">
+                      <span>Accepted</span>
+                    </label>
+                    <label class="toggle-pill">
+                      <input id="showRaw" type="checkbox">
+                      <span>Raw</span>
+                    </label>
+                  </div>
+                </div>
+                <canvas id="historyCanvas" width="960" height="360" aria-label="Reading history graph"></canvas>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <section class="tab-panel" data-tab-group="main" data-tab-id="runtimeConfiguration">
+          <section class="panel panel--config">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Runtime configuration</p>
+                <h2>Editable Device Settings</h2>
+              </div>
+              <p class="panel-meta">Blank password inputs keep the current stored password unless you also check clear.</p>
+            </div>
+
+            <form id="configForm" novalidate>
+              <div id="configSectionTabs" class="tab-row tab-row--section" role="tablist" aria-label="Runtime configuration sections"></div>
+              <div id="formSections" class="form-sections form-sections--tabbed"></div>
+              <div class="form-actions">
+                <button id="restartButton" class="button button--ghost" type="button">Restart...</button>
+                <button id="saveButton" class="button button--primary" type="submit">Save Settings</button>
+              </div>
+            </form>
+          </section>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div id="restartModal" class="modal hidden" aria-hidden="true">
+    <div class="modal__backdrop"></div>
+    <div class="modal__dialog" role="dialog" aria-modal="true" aria-labelledby="restartModalTitle">
+      <p class="eyebrow">Restart required</p>
+      <h2 id="restartModalTitle">Low-level settings need a reboot</h2>
+      <p id="restartModalBody" class="modal__body">Pin and serial changes are saved, but the running firmware will keep the current hardware mapping until you restart.</p>
+      <div class="modal__actions">
+        <button id="restartLaterButton" class="button button--ghost" type="button">Wait</button>
+        <button id="restartNowButton" class="button button--primary" type="button">Restart Now</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
