@@ -1,3 +1,5 @@
+#include "common.h"
+
 bool beginFileSystem() {
   fileSystemReady = LittleFS.begin();
   return fileSystemReady;
@@ -18,6 +20,65 @@ static void trimConfigTextFields(Config &target) {
   target.wifiApGateway.trim();
   target.wifiApSubnet.trim();
 }
+
+enum ConfigFieldType : uint8_t {
+  CONFIG_FIELD_BOOL,
+  CONFIG_FIELD_UINT8,
+  CONFIG_FIELD_ULONG,
+  CONFIG_FIELD_FLOAT,
+  CONFIG_FIELD_STRING
+};
+
+struct ConfigFieldDescriptor {
+  const char *name;
+  size_t offset;
+  ConfigFieldType type;
+  bool requiredAlways;
+  bool requiredWhenStrict;
+};
+
+static const ConfigFieldDescriptor SHARED_CONFIG_FIELDS[] = {
+  {"debugControlLogs", offsetof(Config, debugControlLogs), CONFIG_FIELD_BOOL, false, true},
+  {"debugMeasurementLogs", offsetof(Config, debugMeasurementLogs), CONFIG_FIELD_BOOL, false, true},
+  {"trigPin", offsetof(Config, trigPin), CONFIG_FIELD_UINT8, false, true},
+  {"echoPin", offsetof(Config, echoPin), CONFIG_FIELD_UINT8, false, true},
+  {"waterPin", offsetof(Config, waterPin), CONFIG_FIELD_UINT8, false, true},
+  {"errLedPin", offsetof(Config, errLedPin), CONFIG_FIELD_UINT8, false, true},
+  {"serialBaud", offsetof(Config, serialBaud), CONFIG_FIELD_ULONG, false, true},
+  {"kalmanMeasurementError", offsetof(Config, kalmanMeasurementError), CONFIG_FIELD_FLOAT, false, true},
+  {"kalmanEstimateError", offsetof(Config, kalmanEstimateError), CONFIG_FIELD_FLOAT, false, true},
+  {"kalmanProcessNoise", offsetof(Config, kalmanProcessNoise), CONFIG_FIELD_FLOAT, false, true},
+  {"waterMaxDuration", offsetof(Config, waterMaxDuration), CONFIG_FIELD_ULONG, true, false},
+  {"loopDelayMs", offsetof(Config, loopDelayMs), CONFIG_FIELD_ULONG, true, false},
+  {"waterDelayMs", offsetof(Config, waterDelayMs), CONFIG_FIELD_ULONG, true, false},
+  {"waterLowUs", offsetof(Config, waterLowUs), CONFIG_FIELD_ULONG, true, false},
+  {"waterHighUs", offsetof(Config, waterHighUs), CONFIG_FIELD_ULONG, true, false},
+  {"waterErrUs", offsetof(Config, waterErrUs), CONFIG_FIELD_ULONG, true, false},
+  {"pulseTimeoutUs", offsetof(Config, pulseTimeoutUs), CONFIG_FIELD_ULONG, true, false},
+  {"nPings", offsetof(Config, nPings), CONFIG_FIELD_UINT8, true, false},
+  {"minValidPings", offsetof(Config, minValidPings), CONFIG_FIELD_UINT8, true, false},
+  {"pingGapMs", offsetof(Config, pingGapMs), CONFIG_FIELD_ULONG, true, false},
+  {"minValidEchoUs", offsetof(Config, minValidEchoUs), CONFIG_FIELD_ULONG, true, false},
+  {"shortJumpUs", offsetof(Config, shortJumpUs), CONFIG_FIELD_ULONG, true, false},
+  {"shortConfirmDeltaUs", offsetof(Config, shortConfirmDeltaUs), CONFIG_FIELD_ULONG, true, false},
+  {"shortConfirmCount", offsetof(Config, shortConfirmCount), CONFIG_FIELD_UINT8, true, false},
+  {"maxHeldInvalidBursts", offsetof(Config, maxHeldInvalidBursts), CONFIG_FIELD_UINT8, true, false},
+  {"wifiStaSsid", offsetof(Config, wifiStaSsid), CONFIG_FIELD_STRING, false, false},
+  {"wifiStaPassword", offsetof(Config, wifiStaPassword), CONFIG_FIELD_STRING, false, false},
+  {"enableStationDhcp", offsetof(Config, enableStationDhcp), CONFIG_FIELD_BOOL, false, false},
+  {"wifiApSsid", offsetof(Config, wifiApSsid), CONFIG_FIELD_STRING, true, false},
+  {"wifiStaIp", offsetof(Config, wifiStaIp), CONFIG_FIELD_STRING, false, false},
+  {"wifiStaGateway", offsetof(Config, wifiStaGateway), CONFIG_FIELD_STRING, false, false},
+  {"wifiStaSubnet", offsetof(Config, wifiStaSubnet), CONFIG_FIELD_STRING, false, false},
+  {"wifiApIp", offsetof(Config, wifiApIp), CONFIG_FIELD_STRING, true, false},
+  {"wifiApGateway", offsetof(Config, wifiApGateway), CONFIG_FIELD_STRING, true, false},
+  {"wifiApSubnet", offsetof(Config, wifiApSubnet), CONFIG_FIELD_STRING, true, false},
+  {"wifiStaConnectTimeoutMs", offsetof(Config, wifiStaConnectTimeoutMs), CONFIG_FIELD_ULONG, false, false},
+  {"httpPort", offsetof(Config, httpPort), CONFIG_FIELD_ULONG, false, true},
+  {"websocketPort", offsetof(Config, websocketPort), CONFIG_FIELD_ULONG, false, true},
+  {"historyCapacity", offsetof(Config, historyCapacity), CONFIG_FIELD_ULONG, false, true},
+  {"maxConfigurablePings", offsetof(Config, maxConfigurablePings), CONFIG_FIELD_ULONG, false, true}
+};
 
 static bool readConfigField(const JSONVar &json, const char *name, bool &target, bool strict, String &errorMessage) {
   bool ok = strict ? requireBoolField(json, name, target) : optionalBoolField(json, name, target);
@@ -59,84 +120,116 @@ static bool readConfigField(const JSONVar &json, const char *name, String &targe
   return ok;
 }
 
-static bool parseSharedConfigFields(const JSONVar &json, Config &parsed, bool strictRuntimeFields, String &errorMessage) {
-  if (!readConfigField(json, "debugControlLogs", parsed.debugControlLogs, strictRuntimeFields, errorMessage)) return false;
-  if (!readConfigField(json, "debugMeasurementLogs", parsed.debugMeasurementLogs, strictRuntimeFields, errorMessage)) return false;
-  if (!readConfigField(json, "trigPin", parsed.trigPin, strictRuntimeFields, errorMessage)) return false;
-  if (!readConfigField(json, "echoPin", parsed.echoPin, strictRuntimeFields, errorMessage)) return false;
-  if (!readConfigField(json, "waterPin", parsed.waterPin, strictRuntimeFields, errorMessage)) return false;
-  if (!readConfigField(json, "errLedPin", parsed.errLedPin, strictRuntimeFields, errorMessage)) return false;
-  if (!readConfigField(json, "serialBaud", parsed.serialBaud, strictRuntimeFields, errorMessage)) return false;
-  if (!readConfigField(json, "kalmanMeasurementError", parsed.kalmanMeasurementError, strictRuntimeFields, errorMessage)) return false;
-  if (!readConfigField(json, "kalmanEstimateError", parsed.kalmanEstimateError, strictRuntimeFields, errorMessage)) return false;
-  if (!readConfigField(json, "kalmanProcessNoise", parsed.kalmanProcessNoise, strictRuntimeFields, errorMessage)) return false;
+static bool parseConfigField(const JSONVar &json, const ConfigFieldDescriptor &desc, Config &target, bool strictRuntimeFields, String &errorMessage) {
+  bool required = desc.requiredAlways || (desc.requiredWhenStrict && strictRuntimeFields);
+  void *fieldPtr = (uint8_t *)&target + desc.offset;
 
-  if (!readConfigField(json, "waterMaxDuration", parsed.waterMaxDuration, true, errorMessage)) return false;
-  if (!readConfigField(json, "loopDelayMs", parsed.loopDelayMs, true, errorMessage)) return false;
-  if (!readConfigField(json, "waterDelayMs", parsed.waterDelayMs, true, errorMessage)) return false;
-  if (!readConfigField(json, "waterLowUs", parsed.waterLowUs, true, errorMessage)) return false;
-  if (!readConfigField(json, "waterHighUs", parsed.waterHighUs, true, errorMessage)) return false;
-  if (!readConfigField(json, "waterErrUs", parsed.waterErrUs, true, errorMessage)) return false;
-  if (!readConfigField(json, "pulseTimeoutUs", parsed.pulseTimeoutUs, true, errorMessage)) return false;
-  if (!readConfigField(json, "nPings", parsed.nPings, true, errorMessage)) return false;
-  if (!readConfigField(json, "minValidPings", parsed.minValidPings, true, errorMessage)) return false;
-  if (!readConfigField(json, "pingGapMs", parsed.pingGapMs, true, errorMessage)) return false;
-  if (!readConfigField(json, "minValidEchoUs", parsed.minValidEchoUs, true, errorMessage)) return false;
-  if (!readConfigField(json, "shortJumpUs", parsed.shortJumpUs, true, errorMessage)) return false;
-  if (!readConfigField(json, "shortConfirmDeltaUs", parsed.shortConfirmDeltaUs, true, errorMessage)) return false;
-  if (!readConfigField(json, "shortConfirmCount", parsed.shortConfirmCount, true, errorMessage)) return false;
-  if (!readConfigField(json, "maxHeldInvalidBursts", parsed.maxHeldInvalidBursts, true, errorMessage)) return false;
-  if (!readConfigField(json, "wifiStaSsid", parsed.wifiStaSsid, true, errorMessage)) return false;
-  if (!readConfigField(json, "wifiApSsid", parsed.wifiApSsid, true, errorMessage)) return false;
-  if (!readConfigField(json, "wifiStaIp", parsed.wifiStaIp, true, errorMessage)) return false;
-  if (!readConfigField(json, "wifiStaGateway", parsed.wifiStaGateway, true, errorMessage)) return false;
-  if (!readConfigField(json, "wifiStaSubnet", parsed.wifiStaSubnet, true, errorMessage)) return false;
-  if (!readConfigField(json, "wifiApIp", parsed.wifiApIp, true, errorMessage)) return false;
-  if (!readConfigField(json, "wifiApGateway", parsed.wifiApGateway, true, errorMessage)) return false;
-  if (!readConfigField(json, "wifiApSubnet", parsed.wifiApSubnet, true, errorMessage)) return false;
-  if (!readConfigField(json, "wifiStaConnectTimeoutMs", parsed.wifiStaConnectTimeoutMs, true, errorMessage)) return false;
+  switch (desc.type) {
+    case CONFIG_FIELD_BOOL:
+      return readConfigField(json, desc.name, *(bool *)fieldPtr, required, errorMessage);
+    case CONFIG_FIELD_UINT8:
+      return readConfigField(json, desc.name, *(uint8_t *)fieldPtr, required, errorMessage);
+    case CONFIG_FIELD_ULONG:
+      return readConfigField(json, desc.name, *(unsigned long *)fieldPtr, required, errorMessage);
+    case CONFIG_FIELD_FLOAT:
+      return readConfigField(json, desc.name, *(float *)fieldPtr, required, errorMessage);
+    case CONFIG_FIELD_STRING:
+      return readConfigField(json, desc.name, *(String *)fieldPtr, required, errorMessage);
+  }
+
+  return false;
+}
+
+static bool parseSharedConfigFields(const JSONVar &json, Config &parsed, bool strictRuntimeFields, String &errorMessage) {
+  for (size_t i = 0; i < sizeof(SHARED_CONFIG_FIELDS) / sizeof(SHARED_CONFIG_FIELDS[0]); ++i) {
+    if (!parseConfigField(json, SHARED_CONFIG_FIELDS[i], parsed, strictRuntimeFields, errorMessage)) {
+      return false;
+    }
+  }
 
   trimConfigTextFields(parsed);
   return true;
 }
 
+struct ConfigJsonFieldDescriptor {
+  const char *name;
+  size_t offset;
+  ConfigFieldType type;
+  uint8_t decimals;
+};
+
+static const ConfigJsonFieldDescriptor CONFIG_JSON_FIELDS[] = {
+  {"debugControlLogs", offsetof(Config, debugControlLogs), CONFIG_FIELD_BOOL, 0},
+  {"debugMeasurementLogs", offsetof(Config, debugMeasurementLogs), CONFIG_FIELD_BOOL, 0},
+  {"trigPin", offsetof(Config, trigPin), CONFIG_FIELD_UINT8, 0},
+  {"echoPin", offsetof(Config, echoPin), CONFIG_FIELD_UINT8, 0},
+  {"waterPin", offsetof(Config, waterPin), CONFIG_FIELD_UINT8, 0},
+  {"errLedPin", offsetof(Config, errLedPin), CONFIG_FIELD_UINT8, 0},
+  {"serialBaud", offsetof(Config, serialBaud), CONFIG_FIELD_ULONG, 0},
+  {"kalmanMeasurementError", offsetof(Config, kalmanMeasurementError), CONFIG_FIELD_FLOAT, 4},
+  {"kalmanEstimateError", offsetof(Config, kalmanEstimateError), CONFIG_FIELD_FLOAT, 4},
+  {"kalmanProcessNoise", offsetof(Config, kalmanProcessNoise), CONFIG_FIELD_FLOAT, 5},
+  {"waterMaxDuration", offsetof(Config, waterMaxDuration), CONFIG_FIELD_ULONG, 0},
+  {"loopDelayMs", offsetof(Config, loopDelayMs), CONFIG_FIELD_ULONG, 0},
+  {"waterDelayMs", offsetof(Config, waterDelayMs), CONFIG_FIELD_ULONG, 0},
+  {"waterLowUs", offsetof(Config, waterLowUs), CONFIG_FIELD_ULONG, 0},
+  {"waterHighUs", offsetof(Config, waterHighUs), CONFIG_FIELD_ULONG, 0},
+  {"waterErrUs", offsetof(Config, waterErrUs), CONFIG_FIELD_ULONG, 0},
+  {"pulseTimeoutUs", offsetof(Config, pulseTimeoutUs), CONFIG_FIELD_ULONG, 0},
+  {"nPings", offsetof(Config, nPings), CONFIG_FIELD_UINT8, 0},
+  {"minValidPings", offsetof(Config, minValidPings), CONFIG_FIELD_UINT8, 0},
+  {"pingGapMs", offsetof(Config, pingGapMs), CONFIG_FIELD_ULONG, 0},
+  {"minValidEchoUs", offsetof(Config, minValidEchoUs), CONFIG_FIELD_ULONG, 0},
+  {"shortJumpUs", offsetof(Config, shortJumpUs), CONFIG_FIELD_ULONG, 0},
+  {"shortConfirmDeltaUs", offsetof(Config, shortConfirmDeltaUs), CONFIG_FIELD_ULONG, 0},
+  {"shortConfirmCount", offsetof(Config, shortConfirmCount), CONFIG_FIELD_UINT8, 0},
+  {"maxHeldInvalidBursts", offsetof(Config, maxHeldInvalidBursts), CONFIG_FIELD_UINT8, 0},
+  {"wifiStaSsid", offsetof(Config, wifiStaSsid), CONFIG_FIELD_STRING, 0},
+  {"wifiStaPassword", offsetof(Config, wifiStaPassword), CONFIG_FIELD_STRING, 0},
+  {"enableStationDhcp", offsetof(Config, enableStationDhcp), CONFIG_FIELD_BOOL, 0},
+  {"wifiApSsid", offsetof(Config, wifiApSsid), CONFIG_FIELD_STRING, 0},
+  {"wifiStaIp", offsetof(Config, wifiStaIp), CONFIG_FIELD_STRING, 0},
+  {"wifiStaGateway", offsetof(Config, wifiStaGateway), CONFIG_FIELD_STRING, 0},
+  {"wifiStaSubnet", offsetof(Config, wifiStaSubnet), CONFIG_FIELD_STRING, 0},
+  {"wifiApIp", offsetof(Config, wifiApIp), CONFIG_FIELD_STRING, 0},
+  {"wifiApGateway", offsetof(Config, wifiApGateway), CONFIG_FIELD_STRING, 0},
+  {"wifiApSubnet", offsetof(Config, wifiApSubnet), CONFIG_FIELD_STRING, 0},
+  {"wifiStaConnectTimeoutMs", offsetof(Config, wifiStaConnectTimeoutMs), CONFIG_FIELD_ULONG, 0},
+  {"httpPort", offsetof(Config, httpPort), CONFIG_FIELD_ULONG, 0},
+  {"websocketPort", offsetof(Config, websocketPort), CONFIG_FIELD_ULONG, 0},
+  {"historyCapacity", offsetof(Config, historyCapacity), CONFIG_FIELD_ULONG, 0},
+  {"maxConfigurablePings", offsetof(Config, maxConfigurablePings), CONFIG_FIELD_ULONG, 0}
+};
+
+static void writeConfigJsonField(JsonOutput &output, bool &first, const ConfigJsonFieldDescriptor &desc, const Config &source) {
+  const void *fieldPtr = (const uint8_t *)&source + desc.offset;
+
+  switch (desc.type) {
+    case CONFIG_FIELD_BOOL:
+      writeJsonBoolField(output, first, desc.name, *(const bool *)fieldPtr);
+      break;
+    case CONFIG_FIELD_UINT8:
+      writeJsonUIntField(output, first, desc.name, *(const uint8_t *)fieldPtr);
+      break;
+    case CONFIG_FIELD_ULONG:
+      writeJsonULongField(output, first, desc.name, *(const unsigned long *)fieldPtr);
+      break;
+    case CONFIG_FIELD_FLOAT:
+      writeJsonFloatField(output, first, desc.name, *(const float *)fieldPtr, desc.decimals);
+      break;
+    case CONFIG_FIELD_STRING:
+      writeJsonStringField(output, first, desc.name, *(const String *)fieldPtr);
+      break;
+  }
+}
+
 void writeConfigJsonObject(JsonOutput &output, const Config &source, bool includeSecrets, bool includePasswordFlags) {
   bool first = true;
   jsonWrite(output, "{");
-  writeJsonBoolField(output, first, "debugControlLogs", source.debugControlLogs);
-  writeJsonBoolField(output, first, "debugMeasurementLogs", source.debugMeasurementLogs);
-  writeJsonULongField(output, first, "trigPin", source.trigPin);
-  writeJsonULongField(output, first, "echoPin", source.echoPin);
-  writeJsonULongField(output, first, "waterPin", source.waterPin);
-  writeJsonULongField(output, first, "errLedPin", source.errLedPin);
-  writeJsonULongField(output, first, "serialBaud", source.serialBaud);
-  writeJsonFloatField(output, first, "kalmanMeasurementError", source.kalmanMeasurementError, 4);
-  writeJsonFloatField(output, first, "kalmanEstimateError", source.kalmanEstimateError, 4);
-  writeJsonFloatField(output, first, "kalmanProcessNoise", source.kalmanProcessNoise, 5);
-  writeJsonULongField(output, first, "waterMaxDuration", source.waterMaxDuration);
-  writeJsonULongField(output, first, "loopDelayMs", source.loopDelayMs);
-  writeJsonULongField(output, first, "waterDelayMs", source.waterDelayMs);
-  writeJsonULongField(output, first, "waterLowUs", source.waterLowUs);
-  writeJsonULongField(output, first, "waterHighUs", source.waterHighUs);
-  writeJsonULongField(output, first, "waterErrUs", source.waterErrUs);
-  writeJsonULongField(output, first, "pulseTimeoutUs", source.pulseTimeoutUs);
-  writeJsonULongField(output, first, "nPings", source.nPings);
-  writeJsonULongField(output, first, "minValidPings", source.minValidPings);
-  writeJsonULongField(output, first, "pingGapMs", source.pingGapMs);
-  writeJsonULongField(output, first, "minValidEchoUs", source.minValidEchoUs);
-  writeJsonULongField(output, first, "shortJumpUs", source.shortJumpUs);
-  writeJsonULongField(output, first, "shortConfirmDeltaUs", source.shortConfirmDeltaUs);
-  writeJsonULongField(output, first, "shortConfirmCount", source.shortConfirmCount);
-  writeJsonULongField(output, first, "maxHeldInvalidBursts", source.maxHeldInvalidBursts);
-  writeJsonStringField(output, first, "wifiStaSsid", source.wifiStaSsid);
-  writeJsonStringField(output, first, "wifiApSsid", source.wifiApSsid);
-  writeJsonStringField(output, first, "wifiStaIp", source.wifiStaIp);
-  writeJsonStringField(output, first, "wifiStaGateway", source.wifiStaGateway);
-  writeJsonStringField(output, first, "wifiStaSubnet", source.wifiStaSubnet);
-  writeJsonStringField(output, first, "wifiApIp", source.wifiApIp);
-  writeJsonStringField(output, first, "wifiApGateway", source.wifiApGateway);
-  writeJsonStringField(output, first, "wifiApSubnet", source.wifiApSubnet);
-  writeJsonULongField(output, first, "wifiStaConnectTimeoutMs", source.wifiStaConnectTimeoutMs);
+
+  for (size_t i = 0; i < sizeof(CONFIG_JSON_FIELDS) / sizeof(CONFIG_JSON_FIELDS[0]); ++i) {
+    writeConfigJsonField(output, first, CONFIG_JSON_FIELDS[i], source);
+  }
 
   if (includeSecrets) {
     writeJsonStringField(output, first, "wifiStaPassword", source.wifiStaPassword);
@@ -147,12 +240,13 @@ void writeConfigJsonObject(JsonOutput &output, const Config &source, bool includ
     writeJsonBoolField(output, first, "hasStaPassword", source.wifiStaPassword.length() > 0);
     writeJsonBoolField(output, first, "hasApPassword", source.wifiApPassword.length() > 0);
   }
+
   jsonWrite(output, "}");
 }
 
 bool configFromJson(const JSONVar &json, Config &candidate, String &errorMessage) {
-  Config parsed = DEFAULT_CONFIG;
-  if (!parseSharedConfigFields(json, parsed, false, errorMessage)) {
+  Config parsed = {};
+  if (!parseSharedConfigFields(json, parsed, true, errorMessage)) {
     return false;
   }
 
@@ -246,7 +340,7 @@ bool validateConfig(const Config &candidate, String &errorMessage) {
     return false;
   }
 
-  if (candidate.nPings == 0 || candidate.nPings > MAX_CONFIGURABLE_PINGS) {
+  if (candidate.nPings == 0 || candidate.nPings > candidate.maxConfigurablePings) {
     errorMessage = F("Ping count is out of range.");
     return false;
   }
@@ -284,6 +378,31 @@ bool validateConfig(const Config &candidate, String &errorMessage) {
     return false;
   }
 
+  if (candidate.httpPort == 0 || candidate.httpPort > 65535UL) {
+    errorMessage = F("HTTP port must be a valid TCP port number.");
+    return false;
+  }
+
+  if (candidate.websocketPort == 0 || candidate.websocketPort > 65535UL) {
+    errorMessage = F("WebSocket port must be a valid TCP port number.");
+    return false;
+  }
+
+  if (candidate.historyCapacity == 0 || candidate.historyCapacity > MAX_HISTORY_BUFFER_CAPACITY) {
+    errorMessage = F("History capacity must be between 1 and the supported maximum.");
+    return false;
+  }
+
+  if (candidate.maxConfigurablePings == 0 || candidate.maxConfigurablePings > MAX_PING_BUFFER_CAPACITY) {
+    errorMessage = F("Max configurable pings must be between 1 and the supported maximum.");
+    return false;
+  }
+
+  if (candidate.nPings > candidate.maxConfigurablePings) {
+    errorMessage = F("Ping count must not exceed the configured maximum pings.");
+    return false;
+  }
+
   if (candidate.kalmanMeasurementError <= 0.0f ||
       candidate.kalmanEstimateError <= 0.0f ||
       candidate.kalmanProcessNoise <= 0.0f) {
@@ -306,13 +425,26 @@ bool validateConfig(const Config &candidate, String &errorMessage) {
     return false;
   }
 
-  if (!parseIpAddressString(candidate.wifiStaIp, parsedIp) ||
-      !parseIpAddressString(candidate.wifiStaGateway, parsedIp) ||
-      !parseIpAddressString(candidate.wifiStaSubnet, parsedIp) ||
-      !parseIpAddressString(candidate.wifiApIp, parsedIp) ||
+  if (!candidate.enableStationDhcp) {
+    if (candidate.wifiStaIp.length() == 0 ||
+        candidate.wifiStaGateway.length() == 0 ||
+        candidate.wifiStaSubnet.length() == 0) {
+      errorMessage = F("Station IP, gateway, and subnet must be provided when DHCP is disabled.");
+      return false;
+    }
+
+    if (!parseIpAddressString(candidate.wifiStaIp, parsedIp) ||
+        !parseIpAddressString(candidate.wifiStaGateway, parsedIp) ||
+        !parseIpAddressString(candidate.wifiStaSubnet, parsedIp)) {
+      errorMessage = F("Station IP, gateway, and subnet must be valid dotted-quad IPv4 addresses.");
+      return false;
+    }
+  }
+
+  if (!parseIpAddressString(candidate.wifiApIp, parsedIp) ||
       !parseIpAddressString(candidate.wifiApGateway, parsedIp) ||
       !parseIpAddressString(candidate.wifiApSubnet, parsedIp)) {
-    errorMessage = F("IP, gateway, and subnet values must be valid dotted-quad IPv4 addresses.");
+    errorMessage = F("Setup AP IP, gateway, and subnet values must be valid dotted-quad IPv4 addresses.");
     return false;
   }
 
@@ -337,7 +469,7 @@ bool loadConfigFromFs() {
     return false;
   }
 
-  Config candidate = DEFAULT_CONFIG;
+  Config candidate = {};
   String validationError;
   if (!configFromJson(json, candidate, validationError)) {
     return false;
@@ -392,7 +524,9 @@ bool restartSensitiveSettingsDiffer(const Config &left, const Config &right) {
          left.echoPin != right.echoPin ||
          left.waterPin != right.waterPin ||
          left.errLedPin != right.errLedPin ||
-         left.serialBaud != right.serialBaud;
+         left.serialBaud != right.serialBaud ||
+         left.httpPort != right.httpPort ||
+         left.websocketPort != right.websocketPort;
 }
 
 bool networkSettingsDiffer(const Config &left, const Config &right) {
@@ -457,7 +591,7 @@ void printConfigSummary(const Config &source, const __FlashStringHelper *label) 
 }
 
 bool parseConfigFromRequestBody(Config &candidate, String &errorMessage) {
-  String body = server.arg("plain");
+  String body = server->arg("plain");
   if (body.length() == 0) {
     errorMessage = F("Request body is empty.");
     return false;

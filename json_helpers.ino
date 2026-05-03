@@ -1,3 +1,5 @@
+#include "common.h"
+
 bool jsonVarToUnsignedLong(const JSONVar &value, unsigned long &parsedValue) {
   String rendered = JSON.stringify(value);
   char *endPtr = nullptr;
@@ -64,43 +66,73 @@ bool jsonVarToFloat(const JSONVar &value, float &parsedValue) {
 }
 
 bool requireUnsignedLongField(const JSONVar &json, const char *name, unsigned long &target) {
-  return json.hasOwnProperty(name) && jsonVarToUnsignedLong(json[name], target);
+  if (!json.hasOwnProperty(name)) {
+    return false;
+  }
+  return jsonVarToUnsignedLong(json[name], target);
 }
 
 bool requireUint8Field(const JSONVar &json, const char *name, uint8_t &target) {
-  return json.hasOwnProperty(name) && jsonVarToUint8(json[name], target);
+  if (!json.hasOwnProperty(name)) {
+    return false;
+  }
+  return jsonVarToUint8(json[name], target);
 }
 
 bool requireStringField(const JSONVar &json, const char *name, String &target) {
-  return json.hasOwnProperty(name) && jsonVarToString(json[name], target);
+  if (!json.hasOwnProperty(name)) {
+    return false;
+  }
+  return jsonVarToString(json[name], target);
 }
 
 bool requireBoolField(const JSONVar &json, const char *name, bool &target) {
-  return json.hasOwnProperty(name) && jsonVarToBool(json[name], target);
+  if (!json.hasOwnProperty(name)) {
+    return false;
+  }
+  return jsonVarToBool(json[name], target);
 }
 
 bool requireFloatField(const JSONVar &json, const char *name, float &target) {
-  return json.hasOwnProperty(name) && jsonVarToFloat(json[name], target);
+  if (!json.hasOwnProperty(name)) {
+    return false;
+  }
+  return jsonVarToFloat(json[name], target);
 }
 
 bool optionalUnsignedLongField(const JSONVar &json, const char *name, unsigned long &target) {
-  return !json.hasOwnProperty(name) || jsonVarToUnsignedLong(json[name], target);
+  if (!json.hasOwnProperty(name)) {
+    return true;
+  }
+  return jsonVarToUnsignedLong(json[name], target);
 }
 
 bool optionalUint8Field(const JSONVar &json, const char *name, uint8_t &target) {
-  return !json.hasOwnProperty(name) || jsonVarToUint8(json[name], target);
+  if (!json.hasOwnProperty(name)) {
+    return true;
+  }
+  return jsonVarToUint8(json[name], target);
 }
 
 bool optionalStringField(const JSONVar &json, const char *name, String &target) {
-  return !json.hasOwnProperty(name) || jsonVarToString(json[name], target);
+  if (!json.hasOwnProperty(name)) {
+    return true;
+  }
+  return jsonVarToString(json[name], target);
 }
 
 bool optionalBoolField(const JSONVar &json, const char *name, bool &target) {
-  return !json.hasOwnProperty(name) || jsonVarToBool(json[name], target);
+  if (!json.hasOwnProperty(name)) {
+    return true;
+  }
+  return jsonVarToBool(json[name], target);
 }
 
 bool optionalFloatField(const JSONVar &json, const char *name, float &target) {
-  return !json.hasOwnProperty(name) || jsonVarToFloat(json[name], target);
+  if (!json.hasOwnProperty(name)) {
+    return true;
+  }
+  return jsonVarToFloat(json[name], target);
 }
 
 static void writeJsonToStringCString(void *context, const char *value) {
@@ -115,12 +147,16 @@ static void writeJsonToStringString(void *context, const String &value) {
 
 static void writeJsonToHttpCString(void *context, const char *value) {
   (void)context;
-  server.sendContent(value);
+  if (server) {
+    server->sendContent(value);
+  }
 }
 
 static void writeJsonToHttpString(void *context, const String &value) {
   (void)context;
-  server.sendContent(value);
+  if (server) {
+    server->sendContent(value);
+  }
 }
 
 JsonOutput makeStringJsonOutput(String &target) {
@@ -139,6 +175,28 @@ JsonOutput makeHttpJsonOutput() {
     writeJsonToHttpString
   };
   return output;
+}
+
+void writeJsonValue(JsonOutput &output, JsonFieldType type, const void *value, uint8_t decimals = 0) {
+  switch (type) {
+    case JSON_FIELD_BOOL:
+      jsonWrite(output, *(const bool *)value ? "true" : "false");
+      break;
+    case JSON_FIELD_UINT:
+      jsonWrite(output, String(*(const unsigned int *)value));
+      break;
+    case JSON_FIELD_ULONG:
+      jsonWrite(output, String(*(const unsigned long *)value));
+      break;
+    case JSON_FIELD_FLOAT:
+      jsonWrite(output, String(*(const float *)value, decimals));
+      break;
+    case JSON_FIELD_STRING:
+      jsonWrite(output, "\"");
+      writeEscapedJsonString(output, *(const String *)value);
+      jsonWrite(output, "\"");
+      break;
+  }
 }
 
 inline void jsonWrite(JsonOutput &output, const char *value) {
@@ -271,25 +329,22 @@ void writeJsonStringField(JsonOutput &output, bool &first, const char *key, cons
 
 void writeJsonBoolField(JsonOutput &output, bool &first, const char *key, bool value) {
   writeJsonFieldPrefix(output, first, key);
-  jsonWrite(output, value ? "true" : "false");
+  writeJsonValue(output, JSON_FIELD_BOOL, &value);
 }
 
 void writeJsonULongField(JsonOutput &output, bool &first, const char *key, unsigned long value) {
-  char buffer[16];
-  ultoa(value, buffer, 10);
   writeJsonFieldPrefix(output, first, key);
-  jsonWrite(output, buffer);
+  writeJsonValue(output, JSON_FIELD_ULONG, &value);
 }
 
 void writeJsonUIntField(JsonOutput &output, bool &first, const char *key, unsigned int value) {
-  writeJsonULongField(output, first, key, value);
+  writeJsonFieldPrefix(output, first, key);
+  writeJsonValue(output, JSON_FIELD_UINT, &value);
 }
 
 void writeJsonFloatField(JsonOutput &output, bool &first, const char *key, float value, uint8_t decimals) {
-  char buffer[24];
-  dtostrf((double)value, 1, decimals, buffer);
   writeJsonFieldPrefix(output, first, key);
-  jsonWrite(output, buffer);
+  writeJsonValue(output, JSON_FIELD_FLOAT, &value, decimals);
 }
 
 void writeJsonArrayStringValue(JsonOutput &output, bool &first, const char *value) {

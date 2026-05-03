@@ -3,7 +3,9 @@ const RESTART_FIELD_LABELS = {
   echoPin: "Echo pin",
   waterPin: "Water relay pin",
   errLedPin: "Error LED pin",
-  serialBaud: "Serial baud"
+  serialBaud: "Serial baud",
+  httpPort: "HTTP port",
+  websocketPort: "WebSocket port"
 };
 
 const FIELD_SECTIONS = [
@@ -25,6 +27,7 @@ const FIELD_SECTIONS = [
     fields: [
       { key: "pulseTimeoutUs", label: "Pulse timeout (us)", type: "number", min: 1, step: 1 },
       { key: "nPings", label: "Ping count", type: "number", min: 1, step: 1 },
+      { key: "maxConfigurablePings", label: "Max configurable pings", type: "number", min: 1, step: 1 },
       { key: "minValidPings", label: "Minimum valid pings", type: "number", min: 1, step: 1 },
       { key: "pingGapMs", label: "Ping gap (ms)", type: "number", min: 1, step: 1 },
       { key: "minValidEchoUs", label: "Minimum valid echo (us)", type: "number", min: 1, step: 1 },
@@ -32,6 +35,7 @@ const FIELD_SECTIONS = [
       { key: "shortConfirmDeltaUs", label: "Short confirm delta (us)", type: "number", min: 1, step: 1 },
       { key: "shortConfirmCount", label: "Short confirm count", type: "number", min: 1, step: 1 },
       { key: "maxHeldInvalidBursts", label: "Max held invalid bursts", type: "number", min: 1, step: 1 },
+      { key: "historyCapacity", label: "History capacity", type: "number", min: 1, step: 1 },
       { key: "kalmanMeasurementError", label: "Kalman measurement error", type: "number", min: 0.0001, step: 0.0001 },
       { key: "kalmanEstimateError", label: "Kalman estimate error", type: "number", min: 0.0001, step: 0.0001 },
       { key: "kalmanProcessNoise", label: "Kalman process noise", type: "number", min: 0.00001, step: 0.00001 }
@@ -43,6 +47,8 @@ const FIELD_SECTIONS = [
     fields: [
       { key: "debugControlLogs", label: "Enable control debug logs", type: "checkbox" },
       { key: "debugMeasurementLogs", label: "Enable measurement debug logs", type: "checkbox" },
+      { key: "httpPort", label: "HTTP port", type: "number", min: 1, step: 1, restartField: true },
+      { key: "websocketPort", label: "WebSocket port", type: "number", min: 1, step: 1, restartField: true },
       { key: "trigPin", label: "Trigger pin", type: "select", optionsKey: "safePins", restartField: true },
       { key: "echoPin", label: "Echo pin", type: "select", optionsKey: "safePins", restartField: true },
       { key: "waterPin", label: "Water relay pin", type: "select", optionsKey: "safePins", restartField: true },
@@ -55,6 +61,7 @@ const FIELD_SECTIONS = [
     description: "LAN join settings that are applied live after save.",
     fields: [
       { key: "wifiStaSsid", label: "Station SSID", type: "text", placeholder: "Your LAN SSID" },
+      { key: "enableStationDhcp", label: "Enable Station DHCP", type: "checkbox" },
       {
         key: "wifiStaPassword",
         label: "Station password",
@@ -62,9 +69,9 @@ const FIELD_SECTIONS = [
         clearKey: "clearStaPassword",
         storedFlag: "hasStaPassword"
       },
-      { key: "wifiStaIp", label: "Station IP", type: "text", placeholder: "10.0.0.47" },
-      { key: "wifiStaGateway", label: "Station gateway", type: "text", placeholder: "10.0.0.1" },
-      { key: "wifiStaSubnet", label: "Station subnet", type: "text", placeholder: "255.0.0.0" },
+      { key: "wifiStaIp", label: "Enter Station IP", type: "text", placeholder: "10.0.0.47", dependsOn: { key: "enableStationDhcp", value: false } },
+      { key: "wifiStaGateway", label: "Station gateway", type: "text", placeholder: "10.0.0.1", dependsOn: { key: "enableStationDhcp", value: false } },
+      { key: "wifiStaSubnet", label: "Station subnet", type: "text", placeholder: "255.0.0.0", dependsOn: { key: "enableStationDhcp", value: false } },
       { key: "wifiStaConnectTimeoutMs", label: "Station connect timeout (ms)", type: "number", min: 1, step: 1 }
     ]
   },
@@ -193,7 +200,8 @@ function connectSocket() {
   }
 
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const socketUrl = `${protocol}://${window.location.hostname}:81/`;
+  const websocketPort = state.config?.websocketPort || 81;
+  const socketUrl = `${protocol}://${window.location.hostname}:${websocketPort}/`;
   const socket = new WebSocket(socketUrl);
   state.socket = socket;
 
@@ -255,7 +263,7 @@ function handleStatus(statusPayload) {
 
 function pushHistorySample(sample) {
   state.history.push(sample);
-  const capacity = state.options?.historyCapacity || 120;
+  const capacity = state.config?.historyCapacity || 120;
   if (state.history.length > capacity) {
     state.history.splice(0, state.history.length - capacity);
   }
@@ -312,6 +320,10 @@ function renderField(field) {
   const wrapper = document.createElement("div");
   wrapper.className = field.type === "checkbox" ? "field--checkbox" : field.type === "password" ? "field--password" : "field";
   wrapper.dataset.fieldKey = field.key;
+  if (field.dependsOn) {
+    wrapper.dataset.dependsOnKey = field.dependsOn.key;
+    wrapper.dataset.dependsOnValue = String(field.dependsOn.value);
+  }
 
   const inputId = fieldId(field.key);
 
@@ -322,6 +334,12 @@ function renderField(field) {
         <span>${field.label}</span>
       </label>
     `;
+
+    if (field.key === "enableStationDhcp") {
+      const checkbox = wrapper.querySelector("input");
+      checkbox.addEventListener("change", updateDependentFields);
+    }
+
     return wrapper;
   }
 
@@ -413,6 +431,32 @@ function populateForm() {
         input.value = state.config[field.key];
       }
     });
+  });
+
+  updateDependentFields();
+}
+
+function updateDependentFields() {
+  const controllers = {};
+  FIELD_SECTIONS.forEach((section) => {
+    section.fields.forEach((field) => {
+      if (field.key === "enableStationDhcp") {
+        const control = document.getElementById(fieldId(field.key));
+        if (control) {
+          controllers[field.key] = control.checked;
+        }
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-depends-on-key]").forEach((wrapper) => {
+    const dependsKey = wrapper.dataset.dependsOnKey;
+    const dependsValue = wrapper.dataset.dependsOnValue === "true";
+    const currentValue = controllers[dependsKey];
+    if (currentValue === undefined) {
+      return;
+    }
+    wrapper.style.display = currentValue === dependsValue ? "" : "none";
   });
 }
 

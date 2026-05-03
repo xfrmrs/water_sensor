@@ -1,3 +1,5 @@
+#include "common.h"
+
 const char *currentNetworkModeName() {
   return currentNetworkMode == NETWORK_MODE_STA ? "Local Wi-Fi" : "Setup AP";
 }
@@ -25,16 +27,20 @@ bool connectToStationMode() {
   IPAddress staIp;
   IPAddress staGateway;
   IPAddress staSubnet;
-  if (!parseIpAddressString(config.wifiStaIp, staIp) ||
-      !parseIpAddressString(config.wifiStaGateway, staGateway) ||
-      !parseIpAddressString(config.wifiStaSubnet, staSubnet)) {
-    return false;
-  }
 
   WiFi.softAPdisconnect(true);
   WiFi.disconnect(true);
   WiFi.mode(WIFI_STA);
-  WiFi.config(staIp, staGateway, staSubnet);
+
+  if (!config.enableStationDhcp) {
+    if (!parseIpAddressString(config.wifiStaIp, staIp) ||
+        !parseIpAddressString(config.wifiStaGateway, staGateway) ||
+        !parseIpAddressString(config.wifiStaSubnet, staSubnet)) {
+      return false;
+    }
+    WiFi.config(staIp, staGateway, staSubnet);
+  }
+
   WiFi.begin(config.wifiStaSsid.c_str(), config.wifiStaPassword.c_str());
 
   unsigned long startedAt = millis();
@@ -64,9 +70,7 @@ void startSoftApMode() {
   if (!parseIpAddressString(config.wifiApIp, apIp) ||
       !parseIpAddressString(config.wifiApGateway, apGateway) ||
       !parseIpAddressString(config.wifiApSubnet, apSubnet)) {
-    apIp.fromString(DEFAULT_AP_IP);
-    apGateway.fromString(DEFAULT_AP_GATEWAY);
-    apSubnet.fromString(DEFAULT_AP_SUBNET);
+    return;
   }
 
   WiFi.softAPdisconnect(true);
@@ -99,8 +103,10 @@ void applyPendingNetworkChange() {
   networkReconnectPending = false;
   applyNetworkMode();
   printNetworkStatus();
-  server.stop();
-  server.begin();
+  if (server) {
+    server->stop();
+    server->begin();
+  }
 
   if (currentNetworkMode == NETWORK_MODE_STA) {
     uiStatusMessage = String(F("Network settings applied. Reconnect using the device LAN IP: ")) + currentNetworkIp;
@@ -128,8 +134,12 @@ void applyPendingRestart() {
 }
 
 void servicePendingIo() {
-  server.handleClient();
-  webSocket.loop();
+  if (server) {
+    server->handleClient();
+  }
+  if (webSocket) {
+    webSocket->loop();
+  }
   applyPendingNetworkChange();
   applyPendingRestart();
 }
@@ -160,6 +170,8 @@ void writeRestartFieldsJsonArray(JsonOutput &output) {
   if (bootConfig.waterPin != config.waterPin) writeJsonArrayStringValue(output, first, "waterPin");
   if (bootConfig.errLedPin != config.errLedPin) writeJsonArrayStringValue(output, first, "errLedPin");
   if (bootConfig.serialBaud != config.serialBaud) writeJsonArrayStringValue(output, first, "serialBaud");
+  if (bootConfig.httpPort != config.httpPort) writeJsonArrayStringValue(output, first, "httpPort");
+  if (bootConfig.websocketPort != config.websocketPort) writeJsonArrayStringValue(output, first, "websocketPort");
 
   jsonWrite(output, "]");
 }
@@ -215,14 +227,20 @@ String buildWebSocketMessage(const char *type, const String &dataJson) {
   return json;
 }
 
+void broadcastJson(const char *type, const String &dataJson) {
+  if (!webSocket) {
+    return;
+  }
+  String payload = buildWebSocketMessage(type, dataJson);
+  webSocket->broadcastTXT(payload);
+}
+
 void broadcastStatus() {
-  String payload = buildWebSocketMessage("status", buildStatusJson());
-  webSocket.broadcastTXT(payload);
+  broadcastJson("status", buildStatusJson());
 }
 
 void broadcastTelemetry(const MeasurementSnapshot &snapshot) {
-  String payload = buildWebSocketMessage("telemetry", buildMeasurementJson(snapshot));
-  webSocket.broadcastTXT(payload);
+  broadcastJson("telemetry", buildMeasurementJson(snapshot));
 }
 
 void handleWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
@@ -231,7 +249,9 @@ void handleWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t l
 
   if (type == WStype_CONNECTED) {
     String payload = buildWebSocketMessage("status", buildStatusJson());
-    webSocket.sendTXT(num, payload);
+    if (webSocket) {
+      webSocket->sendTXT(num, payload);
+    }
   }
 }
 
@@ -245,8 +265,10 @@ bool sendStaticFile(const char *path, const char *contentType) {
     return false;
   }
 
-  server.sendHeader("Cache-Control", "no-store");
-  server.streamFile(file, contentType);
+  if (server) {
+    server->sendHeader("Cache-Control", "no-store");
+    server->streamFile(file, contentType);
+  }
   file.close();
   return true;
 }
@@ -262,9 +284,11 @@ String detectContentType(const String &path) {
 }
 
 static void beginStreamingJsonResponse(int statusCode) {
-  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-  server.sendHeader("Cache-Control", "no-store");
-  server.send(statusCode, "application/json", "");
+  if (server) {
+    server->setContentLength(CONTENT_LENGTH_UNKNOWN);
+    server->sendHeader("Cache-Control", "no-store");
+    server->send(statusCode, "application/json", "");
+  }
 }
 
 static void sendJsonErrorResponse(int statusCode, const String &message) {
@@ -275,12 +299,16 @@ static void sendJsonErrorResponse(int statusCode, const String &message) {
   writeJsonBoolField(output, first, "ok", false);
   writeJsonStringField(output, first, "message", message);
   jsonWrite(output, "}");
-  server.sendContent("");
+  if (server) {
+    server->sendContent("");
+  }
 }
 
 void handleRoot() {
   if (!sendStaticFile(INDEX_FILE_PATH, "text/html")) {
-    server.send(500, "text/plain", "Dashboard assets are unavailable.");
+    if (server) {
+      server->send(500, "text/plain", "Dashboard assets are unavailable.");
+    }
   }
 }
 
@@ -299,7 +327,7 @@ void handleBootstrap() {
   writeJsonFieldPrefix(output, first, "history");
   jsonWrite(output, "[");
   for (uint8_t i = 0; i < measurementHistoryCount; ++i) {
-    const size_t index = (measurementHistoryHead + i) % HISTORY_CAPACITY;
+    const size_t index = (measurementHistoryHead + i) % MAX_HISTORY_BUFFER_CAPACITY;
     if (i > 0) {
       jsonWrite(output, ",");
     }
@@ -324,12 +352,14 @@ void handleBootstrap() {
     writeJsonArrayULongValue(output, firstBaud, SUPPORTED_SERIAL_BAUDS[i]);
   }
   jsonWrite(output, "]");
-  writeJsonULongField(output, optionsFirst, "historyCapacity", HISTORY_CAPACITY);
-  writeJsonULongField(output, optionsFirst, "maxConfigurablePings", MAX_CONFIGURABLE_PINGS);
+  writeJsonULongField(output, optionsFirst, "historyCapacityMax", MAX_HISTORY_BUFFER_CAPACITY);
+  writeJsonULongField(output, optionsFirst, "maxConfigurablePingsMax", MAX_PING_BUFFER_CAPACITY);
   jsonWrite(output, "}");
 
   jsonWrite(output, "}");
-  server.sendContent("");
+  if (server) {
+    server->sendContent("");
+  }
 }
 
 void handleConfigSave() {
@@ -366,7 +396,9 @@ void handleConfigSave() {
     uiStatusMessage = F("Settings saved. Network settings will be applied shortly.");
     networkReconnectPending = true;
     networkReconnectAfterMs = millis() + 1000UL;
-    server.sendHeader("Connection", "close");
+    if (server) {
+      server->sendHeader("Connection", "close");
+    }
   } else if (restartRequired()) {
     uiStatusMessage = F("Settings saved. Restart required for low-level changes.");
   } else {
@@ -387,7 +419,9 @@ void handleConfigSave() {
   writeJsonFieldPrefix(output, first, "status");
   writeStatusJsonObject(output);
   jsonWrite(output, "}");
-  server.sendContent("");
+  if (server) {
+    server->sendContent("");
+  }
   broadcastStatus();
 }
 
@@ -405,11 +439,13 @@ void handleRestart() {
   writeJsonFieldPrefix(output, first, "status");
   writeStatusJsonObject(output);
   jsonWrite(output, "}");
-  server.sendContent("");
+  if (server) {
+    server->sendContent("");
+  }
 }
 
 void handleNotFound() {
-  String path = server.uri();
+  String path = server ? server->uri() : String();
   String contentType = detectContentType(path);
   if (sendStaticFile(path.c_str(), contentType.c_str())) {
     return;
@@ -419,25 +455,32 @@ void handleNotFound() {
 }
 
 void configureWebServer() {
-  server.on("/", HTTP_GET, handleRoot);
-  server.on("/app.js", HTTP_GET, []() {
+  if (!server) {
+    return;
+  }
+
+  server->on("/", HTTP_GET, handleRoot);
+  server->on("/app.js", HTTP_GET, []() {
     if (!sendStaticFile(APP_JS_FILE_PATH, "application/javascript")) {
-      server.send(404, "text/plain", "app.js not found");
+      server->send(404, "text/plain", "app.js not found");
     }
   });
-  server.on("/style.css", HTTP_GET, []() {
+  server->on("/style.css", HTTP_GET, []() {
     if (!sendStaticFile(STYLE_CSS_FILE_PATH, "text/css")) {
-      server.send(404, "text/plain", "style.css not found");
+      server->send(404, "text/plain", "style.css not found");
     }
   });
-  server.on("/api/bootstrap", HTTP_GET, handleBootstrap);
-  server.on("/api/config", HTTP_POST, handleConfigSave);
-  server.on("/api/restart", HTTP_POST, handleRestart);
-  server.onNotFound(handleNotFound);
-  server.begin();
+  server->on("/api/bootstrap", HTTP_GET, handleBootstrap);
+  server->on("/api/config", HTTP_POST, handleConfigSave);
+  server->on("/api/restart", HTTP_POST, handleRestart);
+  server->onNotFound(handleNotFound);
+  server->begin();
 }
 
 void configureWebSocket() {
-  webSocket.begin();
-  webSocket.onEvent(handleWebSocketEvent);
+  if (!webSocket) {
+    return;
+  }
+  webSocket->begin();
+  webSocket->onEvent(handleWebSocketEvent);
 }

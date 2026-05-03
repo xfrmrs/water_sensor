@@ -24,8 +24,9 @@
   "shortConfirmDeltaUs": 120,
   "shortConfirmCount": 2,
   "maxHeldInvalidBursts": 3,
-  "wifiStaSsid": "",
-  "wifiStaPassword": "",
+  "wifiStaSsid": "MyGroove",
+  "wifiStaPassword": "be84267e",
+  "enableStationDhcp": true,
   "wifiApSsid": "WaterSensorSetup",
   "wifiApPassword": "",
   "wifiStaIp": "10.0.0.47",
@@ -34,5 +35,9 @@
   "wifiApIp": "10.0.0.47",
   "wifiApGateway": "10.0.0.47",
   "wifiApSubnet": "255.0.0.0",
-  "wifiStaConnectTimeoutMs": 15000
+  "wifiStaConnectTimeoutMs": 15000,
+  "httpPort": 80,
+  "websocketPort": 81,
+  "historyCapacity": 120,
+  "maxConfigurablePings": 12
 }

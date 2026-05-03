@@ -1,3 +1,5 @@
+#include "common.h"
+
 static inline unsigned int usToCm(unsigned long echoUs) {
   return (unsigned int)((echoUs + 29UL) / 58UL);
 }
@@ -137,7 +139,7 @@ static void sortEchoSamples(unsigned long *samples, uint8_t countSamples) {
 }
 
 static unsigned long readMedianEchoUs() {
-  unsigned long samples[MAX_CONFIGURABLE_PINGS];
+  unsigned long samples[MAX_PING_BUFFER_CAPACITY];
   uint8_t validCount = 0;
 
   for (uint8_t i = 0; i < config.nPings; ++i) {
@@ -328,14 +330,16 @@ bool WaterHigh(unsigned long waterLevelUs) {
 
 void pushHistory(const MeasurementSnapshot &snapshot) {
   HistorySample sample = makeHistorySample(snapshot);
+  unsigned long capacity = config.historyCapacity > 0 ? min(config.historyCapacity, (unsigned long)MAX_HISTORY_BUFFER_CAPACITY) : (unsigned long)MAX_HISTORY_BUFFER_CAPACITY;
+  uint8_t bufferCapacity = (uint8_t)capacity;
 
-  if (measurementHistoryCount < HISTORY_CAPACITY) {
+  if (measurementHistoryCount < bufferCapacity) {
     measurementHistory[measurementHistoryCount++] = sample;
     return;
   }
 
   measurementHistory[measurementHistoryHead] = sample;
-  measurementHistoryHead = (measurementHistoryHead + 1) % HISTORY_CAPACITY;
+  measurementHistoryHead = (measurementHistoryHead + 1) % bufferCapacity;
 }
 
 void writeMeasurementJsonObject(JsonOutput &output, const MeasurementSnapshot &snapshot) {
