@@ -1,3 +1,70 @@
+#include "common.h"
+extern "C" {
+#include "user_interface.h"
+}
+
+
+static const char RECOVERY_DASHBOARD_HTML[] PROGMEM = R"rawliteral(
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Water Station Recovery</title>
+<style>
+body{margin:0;padding:24px;background:#081417;color:#eff8f4;font-family:Arial,sans-serif}
+main{max-width:760px;margin:0 auto;background:#102126;border:1px solid rgba(255,255,255,.12);border-radius:20px;padding:22px}
+h1{margin:0 0 10px;font-family:Georgia,serif}.muted{color:#94b8b1}.status{margin:18px 0;padding:14px;border-radius:14px;background:rgba(255,255,255,.06);white-space:pre-wrap}
+button{border:0;border-radius:14px;padding:14px 18px;font-size:1rem;font-weight:700;cursor:pointer}.danger{background:#ff7a67;color:#220704}.ghost{background:rgba(255,255,255,.08);color:#eff8f4;margin-left:10px}
+</style>
+</head>
+<body>
+<main>
+<h1>Water Station Recovery Dashboard</h1>
+<p class="muted">This page is served by firmware when the LittleFS dashboard assets are unavailable.</p>
+<div id="status" class="status">Loading device status...</div>
+<button id="stop" class="danger" type="button">Emergency Shutoff</button>
+<button id="refresh" class="ghost" type="button">Refresh Status</button>
+</main>
+<script>
+const statusEl=document.getElementById('status');
+async function refresh(){
+  try{
+    const r=await fetch('/api/status',{cache:'no-store'});
+    const s=await r.json();
+    statusEl.textContent=`Mode: ${s.networkMode}\nNetwork: ${s.networkName}\nIP: ${s.networkIp}\nReady: ${s.networkReady}\nEmergency shutoff: ${s.emergencyStopActive}\nMessage: ${s.message||''}`;
+  }catch(e){statusEl.textContent=e.message||'Status request failed.';}
+}
+async function stopNow(){
+  if(!confirm('Activate emergency shutoff and force the water relay off?')) return;
+  try{
+    const r=await fetch('/api/emergency-stop',{method:'POST'});
+    const d=await r.json();
+    statusEl.textContent=d.status?`Emergency shutoff active.\nIP: ${d.status.networkIp}\nMessage: ${d.status.message}`:'Emergency shutoff active.';
+  }catch(e){statusEl.textContent=e.message||'Emergency shutoff request failed.';}
+}
+document.getElementById('refresh').addEventListener('click',refresh);
+document.getElementById('stop').addEventListener('click',stopNow);
+refresh();
+</script>
+</body>
+</html>
+)rawliteral";
+
+
+const char *wifiStatusName(wl_status_t status) {
+  switch (status) {
+    case WL_IDLE_STATUS: return "WL_IDLE_STATUS";
+    case WL_NO_SSID_AVAIL: return "WL_NO_SSID_AVAIL";
+    case WL_SCAN_COMPLETED: return "WL_SCAN_COMPLETED";
+    case WL_CONNECTED: return "WL_CONNECTED";
+    case WL_CONNECT_FAILED: return "WL_CONNECT_FAILED";
+    case WL_CONNECTION_LOST: return "WL_CONNECTION_LOST";
+    case WL_DISCONNECTED: return "WL_DISCONNECTED";
+    default: return "WL_UNKNOWN";
+  }
+}
+
 const char *currentNetworkModeName() {
   return currentNetworkMode == NETWORK_MODE_STA ? "Local Wi-Fi" : "Setup AP";
 }
@@ -18,34 +85,67 @@ void printNetworkStatus() {
 }
 
 bool connectToStationMode() {
+  networkReady = false;
+  currentNetworkIp = "";
+
   if (config.wifiStaSsid.length() == 0) {
+    Serial.println(F("Station SSID is empty; starting setup AP."));
     return false;
   }
 
   IPAddress staIp;
   IPAddress staGateway;
   IPAddress staSubnet;
-  if (!parseIpAddressString(config.wifiStaIp, staIp) ||
-      !parseIpAddressString(config.wifiStaGateway, staGateway) ||
-      !parseIpAddressString(config.wifiStaSubnet, staSubnet)) {
-    return false;
+
+  WiFi.persistent(false);
+  WiFi.setAutoReconnect(false);
+  if (dnsServer) {
+    dnsServer->stop();
+  }
+  WiFi.softAPdisconnect(true);
+  WiFi.disconnect(false);
+  delay(100);
+  WiFi.mode(WIFI_STA);
+
+  if (!config.enableStationDhcp) {
+    if (!parseIpAddressString(config.wifiStaIp, staIp) ||
+        !parseIpAddressString(config.wifiStaGateway, staGateway) ||
+        !parseIpAddressString(config.wifiStaSubnet, staSubnet)) {
+      Serial.println(F("Station static IP config is invalid; starting setup AP."));
+      return false;
+    }
+    if (!WiFi.config(staIp, staGateway, staSubnet)) {
+      Serial.println(F("WiFi.config() rejected the station static IP values; starting setup AP."));
+      return false;
+    }
+    Serial.print(F("Station static IP requested: "));
+    Serial.println(config.wifiStaIp);
+  } else {
+    Serial.println(F("Station DHCP enabled."));
   }
 
-  WiFi.softAPdisconnect(true);
-  WiFi.disconnect(true);
-  WiFi.mode(WIFI_STA);
-  WiFi.config(staIp, staGateway, staSubnet);
+  Serial.print(F("Joining station SSID: "));
+  Serial.println(config.wifiStaSsid);
   WiFi.begin(config.wifiStaSsid.c_str(), config.wifiStaPassword.c_str());
 
   unsigned long startedAt = millis();
+  wl_status_t lastStatus = WiFi.status();
   while ((WiFi.status() != WL_CONNECTED) &&
          ((millis() - startedAt) < config.wifiStaConnectTimeoutMs)) {
+    wl_status_t currentStatus = WiFi.status();
+    if (currentStatus != lastStatus) {
+      Serial.print(F("Station status: "));
+      Serial.println(wifiStatusName(currentStatus));
+      lastStatus = currentStatus;
+    }
     delay(250);
     yield();
   }
 
   if (WiFi.status() != WL_CONNECTED) {
-    WiFi.disconnect(true);
+    Serial.print(F("Station join failed. Final status: "));
+    Serial.println(wifiStatusName(WiFi.status()));
+    WiFi.disconnect(false);
     networkReady = false;
     currentNetworkIp = "";
     return false;
@@ -54,34 +154,82 @@ bool connectToStationMode() {
   networkReady = true;
   currentNetworkMode = NETWORK_MODE_STA;
   currentNetworkIp = WiFi.localIP().toString();
+  Serial.print(F("Station joined. IP: "));
+  Serial.println(currentNetworkIp);
   return true;
 }
 
 void startSoftApMode() {
+  networkReady = false;
+  currentNetworkMode = NETWORK_MODE_SOFTAP;
+  currentNetworkIp = "";
+
+  if (config.wifiApSsid.length() == 0) {
+    Serial.println(F("Setup AP SSID is empty; cannot start AP."));
+    return;
+  }
+
   IPAddress apIp;
   IPAddress apGateway;
   IPAddress apSubnet;
   if (!parseIpAddressString(config.wifiApIp, apIp) ||
       !parseIpAddressString(config.wifiApGateway, apGateway) ||
       !parseIpAddressString(config.wifiApSubnet, apSubnet)) {
-    apIp.fromString(DEFAULT_AP_IP);
-    apGateway.fromString(DEFAULT_AP_GATEWAY);
-    apSubnet.fromString(DEFAULT_AP_SUBNET);
+    Serial.println(F("Setup AP IP config is invalid; cannot start AP."));
+    return;
   }
 
+  WiFi.persistent(false);
   WiFi.softAPdisconnect(true);
-  WiFi.disconnect(true);
+  WiFi.disconnect(false);
+  wifi_softap_dhcps_stop();
+  delay(100);
   WiFi.mode(WIFI_AP);
-  WiFi.softAPConfig(apIp, apGateway, apSubnet);
+
+  if (!WiFi.softAPConfig(apIp, apGateway, apSubnet)) {
+    Serial.println(F("softAPConfig() rejected the AP IP values; cannot start AP."));
+    return;
+  }
 
   const char *apPassword = config.wifiApPassword.length() > 0 ? config.wifiApPassword.c_str() : nullptr;
-  networkReady = WiFi.softAP(config.wifiApSsid.c_str(), apPassword);
-  currentNetworkMode = NETWORK_MODE_SOFTAP;
+  networkReady = WiFi.softAP(
+    config.wifiApSsid.c_str(),
+    apPassword,
+    config.wifiApChannel,
+    config.wifiApHidden ? 1 : 0,
+    config.wifiApMaxConnections
+  );
+  if (networkReady) {
+    if (config.enableApDhcp) {
+      wifi_softap_dhcps_start();
+      Serial.println(F("Setup AP DHCP enabled."));
+    } else {
+      wifi_softap_dhcps_stop();
+      Serial.println(F("Setup AP DHCP disabled. Clients require static IPv4 settings."));
+    }
+  }
+  delay(100);
   currentNetworkIp = WiFi.softAPIP().toString();
+
+  Serial.print(F("Setup AP start result: "));
+  Serial.println(networkReady ? F("success") : F("failed"));
+  Serial.print(F("Setup AP SSID: "));
+  Serial.println(config.wifiApSsid);
+  Serial.print(F("Setup AP IP: "));
+  Serial.println(currentNetworkIp);
+  Serial.print(F("Setup AP dashboard URL: http://"));
+  Serial.print(currentNetworkIp);
+  Serial.println(F("/"));
+
+  if (networkReady && dnsServer) {
+    dnsServer->setErrorReplyCode(DNSReplyCode::NoError);
+    dnsServer->start((uint16_t)config.dnsPort, "*", apIp);
+  }
 }
 
 void applyNetworkMode() {
   if (!connectToStationMode()) {
+    Serial.println(F("Starting setup AP."));
     startSoftApMode();
   }
 }
@@ -99,13 +247,15 @@ void applyPendingNetworkChange() {
   networkReconnectPending = false;
   applyNetworkMode();
   printNetworkStatus();
-  server.stop();
-  server.begin();
+  if (server) {
+    server->stop();
+    server->begin();
+  }
 
   if (currentNetworkMode == NETWORK_MODE_STA) {
     uiStatusMessage = String(F("Network settings applied. Reconnect using the device LAN IP: ")) + currentNetworkIp;
   } else {
-    uiStatusMessage = String(F("LAN join failed. Reconnect to the setup AP '")) +
+    uiStatusMessage = String(F("Setup AP is active. Reconnect to '")) +
                       config.wifiApSsid + F("' at ") + currentNetworkIp;
   }
 
@@ -128,8 +278,15 @@ void applyPendingRestart() {
 }
 
 void servicePendingIo() {
-  server.handleClient();
-  webSocket.loop();
+  if (server) {
+    server->handleClient();
+  }
+  if (webSocket) {
+    webSocket->loop();
+  }
+  if (dnsServer && currentNetworkMode == NETWORK_MODE_SOFTAP) {
+    dnsServer->processNextRequest();
+  }
   applyPendingNetworkChange();
   applyPendingRestart();
 }
@@ -160,6 +317,8 @@ void writeRestartFieldsJsonArray(JsonOutput &output) {
   if (bootConfig.waterPin != config.waterPin) writeJsonArrayStringValue(output, first, "waterPin");
   if (bootConfig.errLedPin != config.errLedPin) writeJsonArrayStringValue(output, first, "errLedPin");
   if (bootConfig.serialBaud != config.serialBaud) writeJsonArrayStringValue(output, first, "serialBaud");
+  if (bootConfig.httpPort != config.httpPort) writeJsonArrayStringValue(output, first, "httpPort");
+  if (bootConfig.websocketPort != config.websocketPort) writeJsonArrayStringValue(output, first, "websocketPort");
 
   jsonWrite(output, "]");
 }
@@ -175,6 +334,7 @@ void writeStatusJsonObject(JsonOutput &output) {
   writeJsonBoolField(output, first, "networkReady", networkReady);
   writeJsonBoolField(output, first, "restartRequired", restartRequired());
   writeJsonBoolField(output, first, "restartPending", restartPending);
+  writeJsonBoolField(output, first, "emergencyStopActive", emergencyStopActive);
 
   writeJsonFieldPrefix(output, first, "restartFields");
   writeRestartFieldsJsonArray(output);
@@ -215,14 +375,20 @@ String buildWebSocketMessage(const char *type, const String &dataJson) {
   return json;
 }
 
+void broadcastJson(const char *type, const String &dataJson) {
+  if (!webSocket) {
+    return;
+  }
+  String payload = buildWebSocketMessage(type, dataJson);
+  webSocket->broadcastTXT(payload);
+}
+
 void broadcastStatus() {
-  String payload = buildWebSocketMessage("status", buildStatusJson());
-  webSocket.broadcastTXT(payload);
+  broadcastJson("status", buildStatusJson());
 }
 
 void broadcastTelemetry(const MeasurementSnapshot &snapshot) {
-  String payload = buildWebSocketMessage("telemetry", buildMeasurementJson(snapshot));
-  webSocket.broadcastTXT(payload);
+  broadcastJson("telemetry", buildMeasurementJson(snapshot));
 }
 
 void handleWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
@@ -231,7 +397,9 @@ void handleWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t l
 
   if (type == WStype_CONNECTED) {
     String payload = buildWebSocketMessage("status", buildStatusJson());
-    webSocket.sendTXT(num, payload);
+    if (webSocket) {
+      webSocket->sendTXT(num, payload);
+    }
   }
 }
 
@@ -245,8 +413,10 @@ bool sendStaticFile(const char *path, const char *contentType) {
     return false;
   }
 
-  server.sendHeader("Cache-Control", "no-store");
-  server.streamFile(file, contentType);
+  if (server) {
+    server->sendHeader("Cache-Control", "no-store");
+    server->streamFile(file, contentType);
+  }
   file.close();
   return true;
 }
@@ -262,9 +432,11 @@ String detectContentType(const String &path) {
 }
 
 static void beginStreamingJsonResponse(int statusCode) {
-  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-  server.sendHeader("Cache-Control", "no-store");
-  server.send(statusCode, "application/json", "");
+  if (server) {
+    server->setContentLength(CONTENT_LENGTH_UNKNOWN);
+    server->sendHeader("Cache-Control", "no-store");
+    server->send(statusCode, "application/json", "");
+  }
 }
 
 static void sendJsonErrorResponse(int statusCode, const String &message) {
@@ -275,12 +447,17 @@ static void sendJsonErrorResponse(int statusCode, const String &message) {
   writeJsonBoolField(output, first, "ok", false);
   writeJsonStringField(output, first, "message", message);
   jsonWrite(output, "}");
-  server.sendContent("");
+  if (server) {
+    server->sendContent("");
+  }
 }
 
 void handleRoot() {
   if (!sendStaticFile(INDEX_FILE_PATH, "text/html")) {
-    server.send(500, "text/plain", "Dashboard assets are unavailable.");
+    if (server) {
+      server->sendHeader("Cache-Control", "no-store");
+      server->send_P(200, "text/html", RECOVERY_DASHBOARD_HTML);
+    }
   }
 }
 
@@ -299,7 +476,7 @@ void handleBootstrap() {
   writeJsonFieldPrefix(output, first, "history");
   jsonWrite(output, "[");
   for (uint8_t i = 0; i < measurementHistoryCount; ++i) {
-    const size_t index = (measurementHistoryHead + i) % HISTORY_CAPACITY;
+    const size_t index = (measurementHistoryHead + i) % MAX_HISTORY_BUFFER_CAPACITY;
     if (i > 0) {
       jsonWrite(output, ",");
     }
@@ -324,12 +501,41 @@ void handleBootstrap() {
     writeJsonArrayULongValue(output, firstBaud, SUPPORTED_SERIAL_BAUDS[i]);
   }
   jsonWrite(output, "]");
-  writeJsonULongField(output, optionsFirst, "historyCapacity", HISTORY_CAPACITY);
-  writeJsonULongField(output, optionsFirst, "maxConfigurablePings", MAX_CONFIGURABLE_PINGS);
+  writeJsonULongField(output, optionsFirst, "historyCapacityMax", MAX_HISTORY_BUFFER_CAPACITY);
+  writeJsonULongField(output, optionsFirst, "maxConfigurablePingsMax", MAX_PING_BUFFER_CAPACITY);
   jsonWrite(output, "}");
 
   jsonWrite(output, "}");
-  server.sendContent("");
+  if (server) {
+    server->sendContent("");
+  }
+}
+
+void handleStatusGet() {
+  beginStreamingJsonResponse(200);
+  JsonOutput output = makeHttpJsonOutput();
+  writeStatusJsonObject(output);
+  if (server) {
+    server->sendContent("");
+  }
+}
+
+void handleEmergencyStop() {
+  activateEmergencyStop();
+  uiStatusMessage = F("Emergency shutoff active. Water output is forced off until restart.");
+  broadcastStatus();
+  beginStreamingJsonResponse(200);
+  JsonOutput output = makeHttpJsonOutput();
+  bool first = true;
+  jsonWrite(output, "{");
+  writeJsonBoolField(output, first, "ok", true);
+  writeJsonStringField(output, first, "message", uiStatusMessage);
+  writeJsonFieldPrefix(output, first, "status");
+  writeStatusJsonObject(output);
+  jsonWrite(output, "}");
+  if (server) {
+    server->sendContent("");
+  }
 }
 
 void handleConfigSave() {
@@ -363,12 +569,14 @@ void handleConfigSave() {
   reconnectHint = networkChanged ? buildReconnectHint(config) : "";
 
   if (networkChanged) {
-    uiStatusMessage = F("Settings saved. Network settings will be applied shortly.");
+    uiStatusMessage = F("Settings saved. Network settings are pending application.");
     networkReconnectPending = true;
     networkReconnectAfterMs = millis() + 1000UL;
-    server.sendHeader("Connection", "close");
+    if (server) {
+      server->sendHeader("Connection", "close");
+    }
   } else if (restartRequired()) {
-    uiStatusMessage = F("Settings saved. Restart required for low-level changes.");
+    uiStatusMessage = F("Settings saved. Restart required for low-level settings.");
   } else {
     uiStatusMessage = F("Settings saved.");
   }
@@ -387,7 +595,9 @@ void handleConfigSave() {
   writeJsonFieldPrefix(output, first, "status");
   writeStatusJsonObject(output);
   jsonWrite(output, "}");
-  server.sendContent("");
+  if (server) {
+    server->sendContent("");
+  }
   broadcastStatus();
 }
 
@@ -405,11 +615,13 @@ void handleRestart() {
   writeJsonFieldPrefix(output, first, "status");
   writeStatusJsonObject(output);
   jsonWrite(output, "}");
-  server.sendContent("");
+  if (server) {
+    server->sendContent("");
+  }
 }
 
 void handleNotFound() {
-  String path = server.uri();
+  String path = server ? server->uri() : String();
   String contentType = detectContentType(path);
   if (sendStaticFile(path.c_str(), contentType.c_str())) {
     return;
@@ -419,25 +631,34 @@ void handleNotFound() {
 }
 
 void configureWebServer() {
-  server.on("/", HTTP_GET, handleRoot);
-  server.on("/app.js", HTTP_GET, []() {
+  if (!server) {
+    return;
+  }
+
+  server->on("/", HTTP_GET, handleRoot);
+  server->on("/app.js", HTTP_GET, []() {
     if (!sendStaticFile(APP_JS_FILE_PATH, "application/javascript")) {
-      server.send(404, "text/plain", "app.js not found");
+      server->send(404, "text/plain", "app.js not found");
     }
   });
-  server.on("/style.css", HTTP_GET, []() {
+  server->on("/style.css", HTTP_GET, []() {
     if (!sendStaticFile(STYLE_CSS_FILE_PATH, "text/css")) {
-      server.send(404, "text/plain", "style.css not found");
+      server->send(404, "text/plain", "style.css not found");
     }
   });
-  server.on("/api/bootstrap", HTTP_GET, handleBootstrap);
-  server.on("/api/config", HTTP_POST, handleConfigSave);
-  server.on("/api/restart", HTTP_POST, handleRestart);
-  server.onNotFound(handleNotFound);
-  server.begin();
+  server->on("/api/bootstrap", HTTP_GET, handleBootstrap);
+  server->on("/api/status", HTTP_GET, handleStatusGet);
+  server->on("/api/emergency-stop", HTTP_POST, handleEmergencyStop);
+  server->on("/api/config", HTTP_POST, handleConfigSave);
+  server->on("/api/restart", HTTP_POST, handleRestart);
+  server->onNotFound(handleNotFound);
+  server->begin();
 }
 
 void configureWebSocket() {
-  webSocket.begin();
-  webSocket.onEvent(handleWebSocketEvent);
+  if (!webSocket) {
+    return;
+  }
+  webSocket->begin();
+  webSocket->onEvent(handleWebSocketEvent);
 }

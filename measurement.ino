@@ -1,3 +1,5 @@
+#include "common.h"
+
 static inline unsigned int usToCm(unsigned long echoUs) {
   return (unsigned int)((echoUs + 29UL) / 58UL);
 }
@@ -30,6 +32,10 @@ static inline bool snapshotWaterOutputOn(const MeasurementSnapshot &snapshot) {
   return snapshotHasFlag(snapshot, MEASUREMENT_FLAG_WATER_OUTPUT_ON);
 }
 
+static inline bool snapshotEmergencyStopActive(const MeasurementSnapshot &snapshot) {
+  return snapshotHasFlag(snapshot, MEASUREMENT_FLAG_EMERGENCY_STOP);
+}
+
 static inline void setSnapshotValid(MeasurementSnapshot &snapshot, bool enabled) {
   setSnapshotFlag(snapshot, MEASUREMENT_FLAG_VALID, enabled);
 }
@@ -40,6 +46,10 @@ static inline void setSnapshotFilling(MeasurementSnapshot &snapshot, bool enable
 
 static inline void setSnapshotWaterOutputOn(MeasurementSnapshot &snapshot, bool enabled) {
   setSnapshotFlag(snapshot, MEASUREMENT_FLAG_WATER_OUTPUT_ON, enabled);
+}
+
+static inline void setSnapshotEmergencyStop(MeasurementSnapshot &snapshot, bool enabled) {
+  setSnapshotFlag(snapshot, MEASUREMENT_FLAG_EMERGENCY_STOP, enabled);
 }
 
 static inline HistorySample makeHistorySample(const MeasurementSnapshot &snapshot) {
@@ -101,6 +111,17 @@ void setErrorIndicator(bool error) {
   digitalWrite(activeErrLedPin, error ? LOW : HIGH);
 }
 
+void activateEmergencyStop() {
+  emergencyStopActive = true;
+  filling = false;
+  count = 0;
+  setWaterOutput(false);
+  setErrorIndicator(true);
+  latestMeasurement.flags &= (uint8_t)(~MEASUREMENT_FLAG_FILLING);
+  latestMeasurement.flags &= (uint8_t)(~MEASUREMENT_FLAG_WATER_OUTPUT_ON);
+  latestMeasurement.flags |= MEASUREMENT_FLAG_EMERGENCY_STOP;
+}
+
 const char *measurementStateName(MeasurementState state) {
   switch (state) {
     case MEASUREMENT_STATE_HIGH:
@@ -137,7 +158,7 @@ static void sortEchoSamples(unsigned long *samples, uint8_t countSamples) {
 }
 
 static unsigned long readMedianEchoUs() {
-  unsigned long samples[MAX_CONFIGURABLE_PINGS];
+  unsigned long samples[MAX_PING_BUFFER_CAPACITY];
   uint8_t validCount = 0;
 
   for (uint8_t i = 0; i < config.nPings; ++i) {
@@ -219,6 +240,7 @@ MeasurementSnapshot measureWaterLevel() {
   setSnapshotValid(snapshot, acceptedUs < config.waterErrUs);
   setSnapshotFilling(snapshot, filling);
   setSnapshotWaterOutputOn(snapshot, false);
+  setSnapshotEmergencyStop(snapshot, emergencyStopActive);
 
   if (!snapshotValid(snapshot)) {
     snapshot.state = MEASUREMENT_STATE_ERROR;
@@ -251,6 +273,17 @@ MeasurementSnapshot measureWaterLevel() {
 }
 
 void applyMeasurementControl(MeasurementSnapshot &snapshot) {
+  if (emergencyStopActive) {
+    setWaterOutput(false);
+    setErrorIndicator(true);
+    filling = false;
+    count = 0;
+    setSnapshotFilling(snapshot, false);
+    setSnapshotWaterOutputOn(snapshot, false);
+    setSnapshotEmergencyStop(snapshot, true);
+    return;
+  }
+
   if (!snapshotValid(snapshot)) {
     if (config.debugControlLogs) {
       Serial.println(F("water reading invalid, STOP water"));
@@ -328,14 +361,16 @@ bool WaterHigh(unsigned long waterLevelUs) {
 
 void pushHistory(const MeasurementSnapshot &snapshot) {
   HistorySample sample = makeHistorySample(snapshot);
+  unsigned long capacity = config.historyCapacity > 0 ? min(config.historyCapacity, (unsigned long)MAX_HISTORY_BUFFER_CAPACITY) : (unsigned long)MAX_HISTORY_BUFFER_CAPACITY;
+  uint8_t bufferCapacity = (uint8_t)capacity;
 
-  if (measurementHistoryCount < HISTORY_CAPACITY) {
+  if (measurementHistoryCount < bufferCapacity) {
     measurementHistory[measurementHistoryCount++] = sample;
     return;
   }
 
   measurementHistory[measurementHistoryHead] = sample;
-  measurementHistoryHead = (measurementHistoryHead + 1) % HISTORY_CAPACITY;
+  measurementHistoryHead = (measurementHistoryHead + 1) % bufferCapacity;
 }
 
 void writeMeasurementJsonObject(JsonOutput &output, const MeasurementSnapshot &snapshot) {
@@ -351,6 +386,7 @@ void writeMeasurementJsonObject(JsonOutput &output, const MeasurementSnapshot &s
   writeJsonStringField(output, first, "state", measurementStateName(snapshot.state));
   writeJsonBoolField(output, first, "filling", snapshotFilling(snapshot));
   writeJsonBoolField(output, first, "waterOutputOn", snapshotWaterOutputOn(snapshot));
+  writeJsonBoolField(output, first, "emergencyStopActive", snapshotEmergencyStopActive(snapshot));
   writeJsonULongField(output, first, "sampleMs", snapshot.sampleMs);
   jsonWrite(output, "}");
 }

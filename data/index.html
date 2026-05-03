@@ -15,6 +15,7 @@
         <p id="connectionSummary" class="hero-subhead">Loading current device state...</p>
       </div>
       <div class="hero-actions">
+        <button id="emergencyStopButton" class="button button--danger" type="button">Emergency Shutoff</button>
         <span id="socketBadge" class="socket-badge socket-badge--offline">Socket offline</span>
       </div>
     </header>
@@ -135,7 +136,7 @@
     <div class="modal__dialog" role="dialog" aria-modal="true" aria-labelledby="restartModalTitle">
       <p class="eyebrow">Restart required</p>
       <h2 id="restartModalTitle">Low-level settings need a reboot</h2>
-      <p id="restartModalBody" class="modal__body">Pin and serial changes are saved, but the running firmware will keep the current hardware mapping until you restart.</p>
+      <p id="restartModalBody" class="modal__body">Pin and serial settings are saved, and the running firmware uses them on the next restart.</p>
       <div class="modal__actions">
         <button id="restartLaterButton" class="button button--ghost" type="button">Wait</button>
         <button id="restartNowButton" class="button button--primary" type="button">Restart Now</button>

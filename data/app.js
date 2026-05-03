@@ -3,7 +3,9 @@ const RESTART_FIELD_LABELS = {
   echoPin: "Echo pin",
   waterPin: "Water relay pin",
   errLedPin: "Error LED pin",
-  serialBaud: "Serial baud"
+  serialBaud: "Serial baud",
+  httpPort: "HTTP port",
+  websocketPort: "WebSocket port"
 };
 
 const FIELD_SECTIONS = [
@@ -25,6 +27,7 @@ const FIELD_SECTIONS = [
     fields: [
       { key: "pulseTimeoutUs", label: "Pulse timeout (us)", type: "number", min: 1, step: 1 },
       { key: "nPings", label: "Ping count", type: "number", min: 1, step: 1 },
+      { key: "maxConfigurablePings", label: "Max configurable pings", type: "number", min: 1, step: 1 },
       { key: "minValidPings", label: "Minimum valid pings", type: "number", min: 1, step: 1 },
       { key: "pingGapMs", label: "Ping gap (ms)", type: "number", min: 1, step: 1 },
       { key: "minValidEchoUs", label: "Minimum valid echo (us)", type: "number", min: 1, step: 1 },
@@ -32,6 +35,7 @@ const FIELD_SECTIONS = [
       { key: "shortConfirmDeltaUs", label: "Short confirm delta (us)", type: "number", min: 1, step: 1 },
       { key: "shortConfirmCount", label: "Short confirm count", type: "number", min: 1, step: 1 },
       { key: "maxHeldInvalidBursts", label: "Max held invalid bursts", type: "number", min: 1, step: 1 },
+      { key: "historyCapacity", label: "History capacity", type: "number", min: 1, step: 1 },
       { key: "kalmanMeasurementError", label: "Kalman measurement error", type: "number", min: 0.0001, step: 0.0001 },
       { key: "kalmanEstimateError", label: "Kalman estimate error", type: "number", min: 0.0001, step: 0.0001 },
       { key: "kalmanProcessNoise", label: "Kalman process noise", type: "number", min: 0.00001, step: 0.00001 }
@@ -43,6 +47,9 @@ const FIELD_SECTIONS = [
     fields: [
       { key: "debugControlLogs", label: "Enable control debug logs", type: "checkbox" },
       { key: "debugMeasurementLogs", label: "Enable measurement debug logs", type: "checkbox" },
+      { key: "httpPort", label: "HTTP port", type: "number", min: 1, step: 1, restartField: true },
+      { key: "websocketPort", label: "WebSocket port", type: "number", min: 1, step: 1, restartField: true },
+      { key: "dnsPort", label: "DNS port", type: "number", min: 1, step: 1 },
       { key: "trigPin", label: "Trigger pin", type: "select", optionsKey: "safePins", restartField: true },
       { key: "echoPin", label: "Echo pin", type: "select", optionsKey: "safePins", restartField: true },
       { key: "waterPin", label: "Water relay pin", type: "select", optionsKey: "safePins", restartField: true },
@@ -55,6 +62,7 @@ const FIELD_SECTIONS = [
     description: "LAN join settings that are applied live after save.",
     fields: [
       { key: "wifiStaSsid", label: "Station SSID", type: "text", placeholder: "Your LAN SSID" },
+      { key: "enableStationDhcp", label: "Enable station DHCP", type: "checkbox" },
       {
         key: "wifiStaPassword",
         label: "Station password",
@@ -62,9 +70,9 @@ const FIELD_SECTIONS = [
         clearKey: "clearStaPassword",
         storedFlag: "hasStaPassword"
       },
-      { key: "wifiStaIp", label: "Station IP", type: "text", placeholder: "10.0.0.47" },
-      { key: "wifiStaGateway", label: "Station gateway", type: "text", placeholder: "10.0.0.1" },
-      { key: "wifiStaSubnet", label: "Station subnet", type: "text", placeholder: "255.0.0.0" },
+      { key: "wifiStaIp", label: "Enter Station IP", type: "text", placeholder: "10.0.0.53", dependsOn: { key: "enableStationDhcp", value: false } },
+      { key: "wifiStaGateway", label: "Station gateway", type: "text", placeholder: "10.0.0.1", dependsOn: { key: "enableStationDhcp", value: false } },
+      { key: "wifiStaSubnet", label: "Station subnet", type: "text", placeholder: "255.0.0.0", dependsOn: { key: "enableStationDhcp", value: false } },
       { key: "wifiStaConnectTimeoutMs", label: "Station connect timeout (ms)", type: "number", min: 1, step: 1 }
     ]
   },
@@ -80,9 +88,13 @@ const FIELD_SECTIONS = [
         clearKey: "clearApPassword",
         storedFlag: "hasApPassword"
       },
+      { key: "enableApDhcp", label: "Enable AP DHCP", type: "checkbox" },
       { key: "wifiApIp", label: "Setup AP IP", type: "text", placeholder: "10.0.0.47" },
       { key: "wifiApGateway", label: "Setup AP gateway", type: "text", placeholder: "10.0.0.47" },
-      { key: "wifiApSubnet", label: "Setup AP subnet", type: "text", placeholder: "255.0.0.0" }
+      { key: "wifiApSubnet", label: "Setup AP subnet", type: "text", placeholder: "255.0.0.0" },
+      { key: "wifiApChannel", label: "Setup AP channel", type: "number", min: 1, step: 1 },
+      { key: "wifiApHidden", label: "Hide setup AP SSID", type: "checkbox" },
+      { key: "wifiApMaxConnections", label: "Setup AP max clients", type: "number", min: 1, step: 1 }
     ]
   }
 ];
@@ -118,6 +130,7 @@ function cacheRefs() {
   refs.configForm = document.getElementById("configForm");
   refs.saveButton = document.getElementById("saveButton");
   refs.restartButton = document.getElementById("restartButton");
+  refs.emergencyStopButton = document.getElementById("emergencyStopButton");
   refs.restartNowButton = document.getElementById("restartNowButton");
   refs.restartLaterButton = document.getElementById("restartLaterButton");
   refs.restartModal = document.getElementById("restartModal");
@@ -144,6 +157,7 @@ function cacheRefs() {
 function bindEvents() {
   refs.configForm.addEventListener("submit", saveConfig);
   refs.restartButton.addEventListener("click", requestRestart);
+  refs.emergencyStopButton.addEventListener("click", requestEmergencyStop);
   refs.restartNowButton.addEventListener("click", requestRestart);
   refs.restartLaterButton.addEventListener("click", closeRestartModal);
   document.addEventListener("click", handleTabClick);
@@ -193,7 +207,8 @@ function connectSocket() {
   }
 
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const socketUrl = `${protocol}://${window.location.hostname}:81/`;
+  const websocketPort = state.config?.websocketPort || 81;
+  const socketUrl = `${protocol}://${window.location.hostname}:${websocketPort}/`;
   const socket = new WebSocket(socketUrl);
   state.socket = socket;
 
@@ -255,7 +270,7 @@ function handleStatus(statusPayload) {
 
 function pushHistorySample(sample) {
   state.history.push(sample);
-  const capacity = state.options?.historyCapacity || 120;
+  const capacity = state.config?.historyCapacity || 120;
   if (state.history.length > capacity) {
     state.history.splice(0, state.history.length - capacity);
   }
@@ -312,6 +327,10 @@ function renderField(field) {
   const wrapper = document.createElement("div");
   wrapper.className = field.type === "checkbox" ? "field--checkbox" : field.type === "password" ? "field--password" : "field";
   wrapper.dataset.fieldKey = field.key;
+  if (field.dependsOn) {
+    wrapper.dataset.dependsOnKey = field.dependsOn.key;
+    wrapper.dataset.dependsOnValue = String(field.dependsOn.value);
+  }
 
   const inputId = fieldId(field.key);
 
@@ -322,6 +341,10 @@ function renderField(field) {
         <span>${field.label}</span>
       </label>
     `;
+
+    const checkbox = wrapper.querySelector("input");
+    checkbox.addEventListener("change", updateDependentFields);
+
     return wrapper;
   }
 
@@ -366,7 +389,7 @@ function renderField(field) {
 
     const helper = document.createElement("p");
     helper.className = "helper-copy";
-    helper.textContent = "Leave this blank to keep the current password. Enter a new value to replace it.";
+    helper.textContent = "Leave this blank to keep the current password. Enter a value to store it.";
     wrapper.appendChild(helper);
 
     input.addEventListener("input", () => {
@@ -413,6 +436,32 @@ function populateForm() {
         input.value = state.config[field.key];
       }
     });
+  });
+
+  updateDependentFields();
+}
+
+function updateDependentFields() {
+  const controllers = {};
+  FIELD_SECTIONS.forEach((section) => {
+    section.fields.forEach((field) => {
+      if (field.type === "checkbox") {
+        const control = document.getElementById(fieldId(field.key));
+        if (control) {
+          controllers[field.key] = control.checked;
+        }
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-depends-on-key]").forEach((wrapper) => {
+    const dependsKey = wrapper.dataset.dependsOnKey;
+    const dependsValue = wrapper.dataset.dependsOnValue === "true";
+    const currentValue = controllers[dependsKey];
+    if (currentValue === undefined) {
+      return;
+    }
+    wrapper.style.display = currentValue === dependsValue ? "" : "none";
   });
 }
 
@@ -471,8 +520,12 @@ function collectConfigPayload() {
       if (field.type === "checkbox") {
         payload[field.key] = input.checked;
       } else if (field.type === "password") {
-        payload[field.key] = input.value;
-        payload[field.clearKey] = document.getElementById(clearFieldId(field.clearKey)).checked;
+        const clearToggle = document.getElementById(clearFieldId(field.clearKey));
+        const shouldClear = Boolean(clearToggle?.checked);
+        payload[field.clearKey] = shouldClear;
+        if (input.value.length > 0) {
+          payload[field.key] = input.value;
+        }
       } else if (field.type === "number" || field.type === "select") {
         const numericValue = Number(input.value);
         if (Number.isNaN(numericValue)) {
@@ -486,6 +539,36 @@ function collectConfigPayload() {
   });
 
   return payload;
+}
+
+async function requestEmergencyStop() {
+  const confirmed = window.confirm("Activate emergency shutoff and force the water relay off until restart?");
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    refs.emergencyStopButton.disabled = true;
+    setManualBanner("Activating emergency shutoff...", "error");
+    renderBanner();
+
+    const response = await fetch("/api/emergency-stop", {
+      method: "POST"
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.message || "Emergency shutoff request failed.");
+    }
+
+    state.status = data.status;
+    state.manualBanner = null;
+    renderStatus();
+  } catch (error) {
+    setManualBanner(error.message || "Emergency shutoff request failed.", "error");
+    renderBanner();
+  } finally {
+    refs.emergencyStopButton.disabled = Boolean(state.status?.emergencyStopActive);
+  }
 }
 
 async function requestRestart() {
@@ -522,6 +605,10 @@ function renderStatus() {
   renderConnectionSummary();
   renderRuntimeSummary();
   renderMetrics();
+  if (refs.emergencyStopButton) {
+    refs.emergencyStopButton.disabled = Boolean(state.status?.emergencyStopActive);
+    refs.emergencyStopButton.textContent = state.status?.emergencyStopActive ? "Emergency Shutoff Active" : "Emergency Shutoff";
+  }
 }
 
 function renderSocketBadge() {
@@ -567,10 +654,13 @@ function renderMetrics() {
   refs.acceptedSubvalue.textContent = `${measurement.acceptedCm} cm`;
   refs.filteredValue.textContent = `${measurement.filteredUs} us`;
   refs.filteredSubvalue.textContent = `${measurement.filteredCm} cm`;
-  refs.stateValue.textContent = measurement.state;
-  refs.stateSubvalue.textContent = measurement.valid ? "Reading valid" : "Sensor invalid";
-  refs.pumpValue.textContent = measurement.waterOutputOn ? "ON" : "OFF";
-  refs.pumpSubvalue.textContent = measurement.filling ? "Filling cycle active" : "Pump idle";
+  const emergencyActive = Boolean(state.status?.emergencyStopActive || measurement.emergencyStopActive);
+  refs.stateValue.textContent = emergencyActive ? "EMERGENCY" : measurement.state;
+  refs.stateSubvalue.textContent = emergencyActive ? "Shutoff latch active" : measurement.valid ? "Reading valid" : "Sensor invalid";
+  refs.pumpValue.textContent = emergencyActive ? "OFF" : measurement.waterOutputOn ? "ON" : "OFF";
+  refs.pumpSubvalue.textContent = emergencyActive
+    ? "Emergency shutoff latch active"
+    : measurement.filling ? "Filling cycle active" : "Pump idle";
   refs.networkValue.textContent = state.status.networkIp || "Offline";
   refs.networkSubvalue.textContent = `${state.status.networkMode} / ${state.status.networkName || "unknown"}`;
 }
@@ -635,8 +725,13 @@ function determineBanner() {
     parts.push(state.status.message);
   }
 
+  if (state.status.emergencyStopActive) {
+    kind = "error";
+    parts.push("Emergency shutoff is active. Water output remains off until restart.");
+  }
+
   if (state.status.restartRequired) {
-    kind = "warn";
+    kind = kind === "error" ? "error" : "warn";
     parts.push(`Restart pending for ${formatRestartFields(state.status.restartFields)}.`);
   }
 
@@ -782,7 +877,7 @@ function drawSeries(ctx, history, key, color, padding, plotWidth, plotHeight, yM
 function openRestartModal(fields) {
   const friendly = formatRestartFields(fields);
   refs.restartModalBody.textContent =
-    `The device saved these low-level changes: ${friendly}. They will not apply until you restart the firmware.`;
+    `The device saved these low-level settings: ${friendly}. They are used by the firmware on the next restart.`;
   refs.restartModal.classList.remove("hidden");
   refs.restartModal.setAttribute("aria-hidden", "false");
 }
