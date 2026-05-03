@@ -129,13 +129,11 @@ void writeJsonStringField(JsonOutput &output, bool &first, const char *key, cons
 void writeJsonStringField(JsonOutput &output, bool &first, const char *key, const String &value);
 void writeJsonBoolField(JsonOutput &output, bool &first, const char *key, bool value);
 void writeJsonULongField(JsonOutput &output, bool &first, const char *key, unsigned long value);
-void writeJsonUIntField(JsonOutput &output, bool &first, const char *key, unsigned int value);
 void writeJsonFloatField(JsonOutput &output, bool &first, const char *key, float value, uint8_t decimals);
 void writeJsonArrayStringValue(JsonOutput &output, bool &first, const char *value);
 void writeJsonArrayULongValue(JsonOutput &output, bool &first, unsigned long value);
 void writeConfigJsonObject(JsonOutput &output, const Config &source, bool includeSecrets, bool includePasswordFlags);
 void writeMeasurementJsonObject(JsonOutput &output, const MeasurementSnapshot &snapshot);
-void writeHistoryPointJsonObject(JsonOutput &output, const HistorySample &snapshot);
 
 const Config DEFAULT_CONFIG = {
   false,
@@ -214,12 +212,11 @@ uint8_t invalidBurstCount = 0;
 
 void setup() {
   bool configLoaded = false;
-  String validationError;
 
   beginFileSystem();
   configLoaded = loadConfigFromFs();
 
-  if (!configLoaded || !validateConfig(config, validationError)) {
+  if (!configLoaded) {
     config = DEFAULT_CONFIG;
   }
 
@@ -234,7 +231,6 @@ void setup() {
 
   if (!configLoaded) {
     Serial.println(F("Config missing or invalid; restoring built-in defaults"));
-    config = DEFAULT_CONFIG;
     if (fileSystemReady && !saveConfigToFs()) {
       Serial.println(F("Failed to write default config to LittleFS"));
     }

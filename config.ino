@@ -387,41 +387,12 @@ bool saveConfigToFs() {
   return true;
 }
 
-bool restartSensitiveSettingsDiffer(const Config &left, const Config &right) {
-  return left.trigPin != right.trigPin ||
-         left.echoPin != right.echoPin ||
-         left.waterPin != right.waterPin ||
-         left.errLedPin != right.errLedPin ||
-         left.serialBaud != right.serialBaud;
-}
-
-bool networkSettingsDiffer(const Config &left, const Config &right) {
-  return left.wifiStaSsid != right.wifiStaSsid ||
-         left.wifiStaPassword != right.wifiStaPassword ||
-         left.wifiApSsid != right.wifiApSsid ||
-         left.wifiApPassword != right.wifiApPassword ||
-         left.wifiStaIp != right.wifiStaIp ||
-         left.wifiStaGateway != right.wifiStaGateway ||
-         left.wifiStaSubnet != right.wifiStaSubnet ||
-         left.wifiApIp != right.wifiApIp ||
-         left.wifiApGateway != right.wifiApGateway ||
-         left.wifiApSubnet != right.wifiApSubnet ||
-         left.wifiStaConnectTimeoutMs != right.wifiStaConnectTimeoutMs;
-}
-
 bool restartRequired() {
-  return restartSensitiveSettingsDiffer(bootConfig, config);
-}
-
-String buildReconnectHint(const Config &targetConfig) {
-  String hint = F("Reconnect to ");
-  hint += targetConfig.wifiStaIp;
-  hint += F(" if the station join succeeds, or to setup AP ");
-  hint += targetConfig.wifiApSsid;
-  hint += F(" at ");
-  hint += targetConfig.wifiApIp;
-  hint += F(" if it falls back.");
-  return hint;
+  return bootConfig.trigPin != config.trigPin ||
+         bootConfig.echoPin != config.echoPin ||
+         bootConfig.waterPin != config.waterPin ||
+         bootConfig.errLedPin != config.errLedPin ||
+         bootConfig.serialBaud != config.serialBaud;
 }
 
 void printConfigSummary(const Config &source, const __FlashStringHelper *label) {

@@ -159,49 +159,6 @@ static void flushEscapedJsonBuffer(JsonOutput &output, char *buffer, uint8_t &us
   used = 0;
 }
 
-void writeEscapedJsonString(JsonOutput &output, const String &value) {
-  char buffer[24];
-  uint8_t used = 0;
-
-  for (size_t i = 0; i < value.length(); ++i) {
-    const char current = value.charAt(i);
-    const char *escapeSequence = nullptr;
-
-    switch (current) {
-      case '\\':
-        escapeSequence = "\\\\";
-        break;
-      case '"':
-        escapeSequence = "\\\"";
-        break;
-      case '\n':
-        escapeSequence = "\\n";
-        break;
-      case '\r':
-        escapeSequence = "\\r";
-        break;
-      case '\t':
-        escapeSequence = "\\t";
-        break;
-      default:
-        break;
-    }
-
-    if (escapeSequence != nullptr) {
-      flushEscapedJsonBuffer(output, buffer, used);
-      jsonWrite(output, escapeSequence);
-      continue;
-    }
-
-    buffer[used++] = current;
-    if (used >= (sizeof(buffer) - 1)) {
-      flushEscapedJsonBuffer(output, buffer, used);
-    }
-  }
-
-  flushEscapedJsonBuffer(output, buffer, used);
-}
-
 void writeEscapedJsonCString(JsonOutput &output, const char *value) {
   char buffer[24];
   uint8_t used = 0;
@@ -265,7 +222,7 @@ void writeJsonStringField(JsonOutput &output, bool &first, const char *key, cons
 void writeJsonStringField(JsonOutput &output, bool &first, const char *key, const String &value) {
   writeJsonFieldPrefix(output, first, key);
   jsonWrite(output, "\"");
-  writeEscapedJsonString(output, value);
+  writeEscapedJsonCString(output, value.c_str());
   jsonWrite(output, "\"");
 }
 
@@ -279,10 +236,6 @@ void writeJsonULongField(JsonOutput &output, bool &first, const char *key, unsig
   ultoa(value, buffer, 10);
   writeJsonFieldPrefix(output, first, key);
   jsonWrite(output, buffer);
-}
-
-void writeJsonUIntField(JsonOutput &output, bool &first, const char *key, unsigned int value) {
-  writeJsonULongField(output, first, key, value);
 }
 
 void writeJsonFloatField(JsonOutput &output, bool &first, const char *key, float value, uint8_t decimals) {

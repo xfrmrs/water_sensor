@@ -2,54 +2,40 @@ static inline unsigned int usToCm(unsigned long echoUs) {
   return (unsigned int)((echoUs + 29UL) / 58UL);
 }
 
-static inline unsigned long absDiffUs(unsigned long a, unsigned long b) {
-  return (a >= b) ? (a - b) : (b - a);
-}
-
-static inline bool snapshotHasFlag(const MeasurementSnapshot &snapshot, uint8_t flag) {
-  return (snapshot.flags & flag) != 0;
-}
-
-static inline void setSnapshotFlag(MeasurementSnapshot &snapshot, uint8_t flag, bool enabled) {
-  if (enabled) {
-    snapshot.flags |= flag;
-  } else {
-    snapshot.flags &= (uint8_t)(~flag);
-  }
-}
-
 static inline bool snapshotValid(const MeasurementSnapshot &snapshot) {
-  return snapshotHasFlag(snapshot, MEASUREMENT_FLAG_VALID);
+  return (snapshot.flags & MEASUREMENT_FLAG_VALID) != 0;
 }
 
 static inline bool snapshotFilling(const MeasurementSnapshot &snapshot) {
-  return snapshotHasFlag(snapshot, MEASUREMENT_FLAG_FILLING);
+  return (snapshot.flags & MEASUREMENT_FLAG_FILLING) != 0;
 }
 
 static inline bool snapshotWaterOutputOn(const MeasurementSnapshot &snapshot) {
-  return snapshotHasFlag(snapshot, MEASUREMENT_FLAG_WATER_OUTPUT_ON);
+  return (snapshot.flags & MEASUREMENT_FLAG_WATER_OUTPUT_ON) != 0;
 }
 
 static inline void setSnapshotValid(MeasurementSnapshot &snapshot, bool enabled) {
-  setSnapshotFlag(snapshot, MEASUREMENT_FLAG_VALID, enabled);
+  if (enabled) {
+    snapshot.flags |= MEASUREMENT_FLAG_VALID;
+  } else {
+    snapshot.flags &= (uint8_t)(~MEASUREMENT_FLAG_VALID);
+  }
 }
 
 static inline void setSnapshotFilling(MeasurementSnapshot &snapshot, bool enabled) {
-  setSnapshotFlag(snapshot, MEASUREMENT_FLAG_FILLING, enabled);
+  if (enabled) {
+    snapshot.flags |= MEASUREMENT_FLAG_FILLING;
+  } else {
+    snapshot.flags &= (uint8_t)(~MEASUREMENT_FLAG_FILLING);
+  }
 }
 
 static inline void setSnapshotWaterOutputOn(MeasurementSnapshot &snapshot, bool enabled) {
-  setSnapshotFlag(snapshot, MEASUREMENT_FLAG_WATER_OUTPUT_ON, enabled);
-}
-
-static inline HistorySample makeHistorySample(const MeasurementSnapshot &snapshot) {
-  HistorySample sample = {
-    snapshot.rawUs,
-    snapshot.acceptedUs,
-    snapshot.filteredUs,
-    snapshot.sampleMs
-  };
-  return sample;
+  if (enabled) {
+    snapshot.flags |= MEASUREMENT_FLAG_WATER_OUTPUT_ON;
+  } else {
+    snapshot.flags &= (uint8_t)(~MEASUREMENT_FLAG_WATER_OUTPUT_ON);
+  }
 }
 
 void resetMeasurementState() {
@@ -99,20 +85,6 @@ void setWaterOutput(bool enabled) {
 
 void setErrorIndicator(bool error) {
   digitalWrite(activeErrLedPin, error ? LOW : HIGH);
-}
-
-const char *measurementStateName(MeasurementState state) {
-  switch (state) {
-    case MEASUREMENT_STATE_HIGH:
-      return "HIGH";
-    case MEASUREMENT_STATE_NORMAL:
-      return "NORMAL";
-    case MEASUREMENT_STATE_LOW:
-      return "LOW";
-    case MEASUREMENT_STATE_ERROR:
-    default:
-      return "ERROR";
-  }
 }
 
 static unsigned long readEchoUsOnce() {
@@ -183,7 +155,7 @@ static unsigned long deglitchShortEchoUs(unsigned long candidateUs) {
 
   if ((candidateUs + config.shortJumpUs) < lastAcceptedUs) {
     if ((pendingShortCount > 0) &&
-        (absDiffUs(candidateUs, pendingShortUs) <= config.shortConfirmDeltaUs)) {
+        (((candidateUs >= pendingShortUs) ? (candidateUs - pendingShortUs) : (pendingShortUs - candidateUs)) <= config.shortConfirmDeltaUs)) {
       ++pendingShortCount;
     } else {
       pendingShortUs = candidateUs;
@@ -222,9 +194,9 @@ MeasurementSnapshot measureWaterLevel() {
 
   if (!snapshotValid(snapshot)) {
     snapshot.state = MEASUREMENT_STATE_ERROR;
-  } else if (WaterHigh(snapshot.filteredUs)) {
+  } else if (snapshot.filteredUs < config.waterHighUs) {
     snapshot.state = MEASUREMENT_STATE_HIGH;
-  } else if (WaterLow(snapshot.filteredUs)) {
+  } else if (snapshot.filteredUs > config.waterLowUs) {
     snapshot.state = MEASUREMENT_STATE_LOW;
   } else {
     snapshot.state = MEASUREMENT_STATE_NORMAL;
@@ -268,7 +240,7 @@ void applyMeasurementControl(MeasurementSnapshot &snapshot) {
 
   setErrorIndicator(false);
 
-  if (WaterHigh(snapshot.filteredUs)) {
+  if (snapshot.filteredUs < config.waterHighUs) {
     if (config.debugControlLogs) {
       Serial.println(F("water HIGH, STOP water"));
     }
@@ -276,7 +248,7 @@ void applyMeasurementControl(MeasurementSnapshot &snapshot) {
     setWaterOutput(false);
     filling = false;
     count = 0;
-  } else if (WaterLow(snapshot.filteredUs)) {
+  } else if (snapshot.filteredUs > config.waterLowUs) {
     if (filling) {
       ++count;
       if (count > (int)config.waterMaxDuration) {
@@ -318,16 +290,13 @@ void applyMeasurementControl(MeasurementSnapshot &snapshot) {
   setSnapshotWaterOutputOn(snapshot, filling);
 }
 
-bool WaterLow(unsigned long waterLevelUs) {
-  return waterLevelUs > config.waterLowUs;
-}
-
-bool WaterHigh(unsigned long waterLevelUs) {
-  return waterLevelUs < config.waterHighUs;
-}
-
 void pushHistory(const MeasurementSnapshot &snapshot) {
-  HistorySample sample = makeHistorySample(snapshot);
+  HistorySample sample = {
+    snapshot.rawUs,
+    snapshot.acceptedUs,
+    snapshot.filteredUs,
+    snapshot.sampleMs
+  };
 
   if (measurementHistoryCount < HISTORY_CAPACITY) {
     measurementHistory[measurementHistoryCount++] = sample;
@@ -340,35 +309,34 @@ void pushHistory(const MeasurementSnapshot &snapshot) {
 
 void writeMeasurementJsonObject(JsonOutput &output, const MeasurementSnapshot &snapshot) {
   bool first = true;
+  const char *stateName = "ERROR";
+
+  switch (snapshot.state) {
+    case MEASUREMENT_STATE_HIGH:
+      stateName = "HIGH";
+      break;
+    case MEASUREMENT_STATE_NORMAL:
+      stateName = "NORMAL";
+      break;
+    case MEASUREMENT_STATE_LOW:
+      stateName = "LOW";
+      break;
+    case MEASUREMENT_STATE_ERROR:
+    default:
+      break;
+  }
+
   jsonWrite(output, "{");
   writeJsonULongField(output, first, "rawUs", snapshot.rawUs);
   writeJsonULongField(output, first, "acceptedUs", snapshot.acceptedUs);
   writeJsonULongField(output, first, "filteredUs", snapshot.filteredUs);
-  writeJsonUIntField(output, first, "rawCm", snapshot.rawCm);
-  writeJsonUIntField(output, first, "acceptedCm", snapshot.acceptedCm);
-  writeJsonUIntField(output, first, "filteredCm", snapshot.filteredCm);
+  writeJsonULongField(output, first, "rawCm", snapshot.rawCm);
+  writeJsonULongField(output, first, "acceptedCm", snapshot.acceptedCm);
+  writeJsonULongField(output, first, "filteredCm", snapshot.filteredCm);
   writeJsonBoolField(output, first, "valid", snapshotValid(snapshot));
-  writeJsonStringField(output, first, "state", measurementStateName(snapshot.state));
+  writeJsonStringField(output, first, "state", stateName);
   writeJsonBoolField(output, first, "filling", snapshotFilling(snapshot));
   writeJsonBoolField(output, first, "waterOutputOn", snapshotWaterOutputOn(snapshot));
-  writeJsonULongField(output, first, "sampleMs", snapshot.sampleMs);
-  jsonWrite(output, "}");
-}
-
-String buildMeasurementJson(const MeasurementSnapshot &snapshot) {
-  String json;
-  json.reserve(320);
-  JsonOutput output = makeStringJsonOutput(json);
-  writeMeasurementJsonObject(output, snapshot);
-  return json;
-}
-
-void writeHistoryPointJsonObject(JsonOutput &output, const HistorySample &snapshot) {
-  bool first = true;
-  jsonWrite(output, "{");
-  writeJsonULongField(output, first, "rawUs", snapshot.rawUs);
-  writeJsonULongField(output, first, "acceptedUs", snapshot.acceptedUs);
-  writeJsonULongField(output, first, "filteredUs", snapshot.filteredUs);
   writeJsonULongField(output, first, "sampleMs", snapshot.sampleMs);
   jsonWrite(output, "}");
 }

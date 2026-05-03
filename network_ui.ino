@@ -221,7 +221,11 @@ void broadcastStatus() {
 }
 
 void broadcastTelemetry(const MeasurementSnapshot &snapshot) {
-  String payload = buildWebSocketMessage("telemetry", buildMeasurementJson(snapshot));
+  String measurementJson;
+  measurementJson.reserve(320);
+  JsonOutput output = makeStringJsonOutput(measurementJson);
+  writeMeasurementJsonObject(output, snapshot);
+  String payload = buildWebSocketMessage("telemetry", measurementJson);
   webSocket.broadcastTXT(payload);
 }
 
@@ -347,7 +351,17 @@ void handleConfigSave() {
     return;
   }
 
-  bool networkChanged = networkSettingsDiffer(previousConfig, candidate);
+  bool networkChanged = previousConfig.wifiStaSsid != candidate.wifiStaSsid ||
+                        previousConfig.wifiStaPassword != candidate.wifiStaPassword ||
+                        previousConfig.wifiApSsid != candidate.wifiApSsid ||
+                        previousConfig.wifiApPassword != candidate.wifiApPassword ||
+                        previousConfig.wifiStaIp != candidate.wifiStaIp ||
+                        previousConfig.wifiStaGateway != candidate.wifiStaGateway ||
+                        previousConfig.wifiStaSubnet != candidate.wifiStaSubnet ||
+                        previousConfig.wifiApIp != candidate.wifiApIp ||
+                        previousConfig.wifiApGateway != candidate.wifiApGateway ||
+                        previousConfig.wifiApSubnet != candidate.wifiApSubnet ||
+                        previousConfig.wifiStaConnectTimeoutMs != candidate.wifiStaConnectTimeoutMs;
   config = candidate;
   rebuildKalmanFilter();
   resetMeasurementState();
@@ -360,7 +374,14 @@ void handleConfigSave() {
     return;
   }
 
-  reconnectHint = networkChanged ? buildReconnectHint(config) : "";
+  if (networkChanged) {
+    reconnectHint = String(F("Reconnect to ")) + config.wifiStaIp +
+                    F(" if the station join succeeds, or to setup AP ") +
+                    config.wifiApSsid + F(" at ") + config.wifiApIp +
+                    F(" if it falls back.");
+  } else {
+    reconnectHint = "";
+  }
 
   if (networkChanged) {
     uiStatusMessage = F("Settings saved. Network settings will be applied shortly.");
