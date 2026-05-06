@@ -1,4 +1,5 @@
 #include "common.h"
+#include "ip_utils.h"
 
 bool beginFileSystem() {
   fileSystemReady = LittleFS.begin();
@@ -269,16 +270,6 @@ bool configFromJson(const JSONVar &json, Config &candidate, String &errorMessage
   return true;
 }
 
-bool parseIpAddressString(const String &value, IPAddress &parsedValue) {
-  IPAddress candidate;
-  if (!candidate.fromString(value)) {
-    return false;
-  }
-
-  parsedValue = candidate;
-  return true;
-}
-
 bool isSafePinValue(uint8_t pinValue) {
   return pinValue < 32 && (SAFE_GPIO_MASK & (1UL << pinValue));
 }
@@ -312,9 +303,7 @@ bool isSupportedBaud(unsigned long baudRate) {
   return false;
 }
 
-bool validateConfig(const Config &candidate, String &errorMessage) {
-  IPAddress parsedIp;
-
+static bool validateWaterConfig(const Config &candidate, String &errorMessage) {
   if (candidate.waterMaxDuration == 0) {
     errorMessage = F("Water max duration must be greater than 0.");
     return false;
@@ -340,6 +329,10 @@ bool validateConfig(const Config &candidate, String &errorMessage) {
     return false;
   }
 
+  return true;
+}
+
+static bool validatePingConfig(const Config &candidate, String &errorMessage) {
   if (candidate.nPings == 0 || candidate.nPings > candidate.maxConfigurablePings) {
     errorMessage = F("Ping count is out of range.");
     return false;
@@ -360,6 +353,20 @@ bool validateConfig(const Config &candidate, String &errorMessage) {
     return false;
   }
 
+  if (candidate.maxConfigurablePings == 0 || candidate.maxConfigurablePings > MAX_PING_BUFFER_CAPACITY) {
+    errorMessage = F("Max configurable pings must be between 1 and the supported maximum.");
+    return false;
+  }
+
+  if (candidate.nPings > candidate.maxConfigurablePings) {
+    errorMessage = F("Ping count must not exceed the configured maximum pings.");
+    return false;
+  }
+
+  return true;
+}
+
+static bool validateHardwareConfig(const Config &candidate, String &errorMessage) {
   if (!isSafePinValue(candidate.trigPin) ||
       !isSafePinValue(candidate.echoPin) ||
       !isSafePinValue(candidate.waterPin) ||
@@ -378,6 +385,10 @@ bool validateConfig(const Config &candidate, String &errorMessage) {
     return false;
   }
 
+  return true;
+}
+
+static bool validateSystemConfig(const Config &candidate, String &errorMessage) {
   if (candidate.httpPort == 0 || candidate.httpPort > 65535UL) {
     errorMessage = F("HTTP port must be a valid TCP port number.");
     return false;
@@ -393,22 +404,18 @@ bool validateConfig(const Config &candidate, String &errorMessage) {
     return false;
   }
 
-  if (candidate.maxConfigurablePings == 0 || candidate.maxConfigurablePings > MAX_PING_BUFFER_CAPACITY) {
-    errorMessage = F("Max configurable pings must be between 1 and the supported maximum.");
-    return false;
-  }
-
-  if (candidate.nPings > candidate.maxConfigurablePings) {
-    errorMessage = F("Ping count must not exceed the configured maximum pings.");
-    return false;
-  }
-
   if (candidate.kalmanMeasurementError <= 0.0f ||
       candidate.kalmanEstimateError <= 0.0f ||
       candidate.kalmanProcessNoise <= 0.0f) {
     errorMessage = F("Kalman filter values must be greater than 0.");
     return false;
   }
+
+  return true;
+}
+
+static bool validateNetworkConfig(const Config &candidate, String &errorMessage) {
+  IPAddress parsedIp;
 
   if (candidate.wifiApSsid.length() == 0) {
     errorMessage = F("Setup AP SSID is required.");
@@ -454,6 +461,14 @@ bool validateConfig(const Config &candidate, String &errorMessage) {
   }
 
   return true;
+}
+
+bool validateConfig(const Config &candidate, String &errorMessage) {
+  return validateWaterConfig(candidate, errorMessage) &&
+         validatePingConfig(candidate, errorMessage) &&
+         validateHardwareConfig(candidate, errorMessage) &&
+         validateSystemConfig(candidate, errorMessage) &&
+         validateNetworkConfig(candidate, errorMessage);
 }
 
 bool loadConfigFromFs() {
@@ -531,7 +546,9 @@ bool restartSensitiveSettingsDiffer(const Config &left, const Config &right) {
          left.errLedPin != right.errLedPin ||
          left.serialBaud != right.serialBaud ||
          left.httpPort != right.httpPort ||
-         left.websocketPort != right.websocketPort;
+         left.websocketPort != right.websocketPort ||
+         left.historyCapacity != right.historyCapacity ||
+         left.maxConfigurablePings != right.maxConfigurablePings;
 }
 
 bool networkSettingsDiffer(const Config &left, const Config &right) {

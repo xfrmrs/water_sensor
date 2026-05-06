@@ -1,0 +1,9 @@
+test_json_helpers
+a.out
+test/test_config
+test/config_funcs.cpp
+tests/test_network_settings
+run_tests
+
+# Compiled test binaries
+tests/test_runner
