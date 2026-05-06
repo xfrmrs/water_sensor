@@ -141,6 +141,7 @@ static void sortEchoSamples(unsigned long *samples, uint8_t countSamples) {
 static unsigned long readMedianEchoUs() {
   unsigned long samples[MAX_PING_BUFFER_CAPACITY];
   uint8_t validCount = 0;
+  unsigned long startMs = millis();
 
   for (uint8_t i = 0; i < config.nPings; ++i) {
     unsigned long echoUs = readEchoUsOnce();
@@ -151,7 +152,11 @@ static unsigned long readMedianEchoUs() {
 
     if (i + 1 < config.nPings) {
       delay(config.pingGapMs);
-      yield();
+      unsigned long nowMs = millis();
+      if (nowMs - startMs >= 50) {
+        yield();
+        startMs = nowMs;
+      }
     }
   }
 
