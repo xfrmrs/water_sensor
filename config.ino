@@ -64,7 +64,6 @@ static const ConfigFieldDescriptor SHARED_CONFIG_FIELDS[] = {
   {"shortConfirmCount", offsetof(Config, shortConfirmCount), CONFIG_FIELD_UINT8, true, false},
   {"maxHeldInvalidBursts", offsetof(Config, maxHeldInvalidBursts), CONFIG_FIELD_UINT8, true, false},
   {"wifiStaSsid", offsetof(Config, wifiStaSsid), CONFIG_FIELD_STRING, false, false},
-  {"wifiStaPassword", offsetof(Config, wifiStaPassword), CONFIG_FIELD_STRING, false, false},
   {"enableStationDhcp", offsetof(Config, enableStationDhcp), CONFIG_FIELD_BOOL, false, false},
   {"wifiApSsid", offsetof(Config, wifiApSsid), CONFIG_FIELD_STRING, true, false},
   {"wifiStaIp", offsetof(Config, wifiStaIp), CONFIG_FIELD_STRING, false, false},
@@ -185,7 +184,6 @@ static const ConfigJsonFieldDescriptor CONFIG_JSON_FIELDS[] = {
   {"shortConfirmCount", offsetof(Config, shortConfirmCount), CONFIG_FIELD_UINT8, 0},
   {"maxHeldInvalidBursts", offsetof(Config, maxHeldInvalidBursts), CONFIG_FIELD_UINT8, 0},
   {"wifiStaSsid", offsetof(Config, wifiStaSsid), CONFIG_FIELD_STRING, 0},
-  {"wifiStaPassword", offsetof(Config, wifiStaPassword), CONFIG_FIELD_STRING, 0},
   {"enableStationDhcp", offsetof(Config, enableStationDhcp), CONFIG_FIELD_BOOL, 0},
   {"wifiApSsid", offsetof(Config, wifiApSsid), CONFIG_FIELD_STRING, 0},
   {"wifiStaIp", offsetof(Config, wifiStaIp), CONFIG_FIELD_STRING, 0},
@@ -485,32 +483,43 @@ bool loadConfigFromFs() {
 
 bool saveConfigToFs() {
   if (!fileSystemReady) {
+    Serial.println(F("Save failed: LittleFS not ready"));
     return false;
   }
 
   File configFile = LittleFS.open(CONFIG_TEMP_PATH, "w");
   if (!configFile) {
+    Serial.println(F("Save failed: Could not open temp file for writing"));
     return false;
   }
 
   String payload;
-  payload.reserve(1900);
+  payload.reserve(2560);
   JsonOutput output = makeStringJsonOutput(payload);
   writeConfigJsonObject(output, config, true, false);
   size_t bytesWritten = configFile.print(payload);
   configFile.close();
 
   if (bytesWritten != payload.length()) {
+    Serial.print(F("Save failed: bytesWritten ("));
+    Serial.print(bytesWritten);
+    Serial.print(F(") != payload length ("));
+    Serial.print(payload.length());
+    Serial.println(F(")"));
     LittleFS.remove(CONFIG_TEMP_PATH);
     return false;
   }
 
-  if (LittleFS.exists(CONFIG_FILE_PATH) && !LittleFS.remove(CONFIG_FILE_PATH)) {
-    LittleFS.remove(CONFIG_TEMP_PATH);
-    return false;
+  if (LittleFS.exists(CONFIG_FILE_PATH)) {
+    if (!LittleFS.remove(CONFIG_FILE_PATH)) {
+      Serial.println(F("Save failed: Could not remove old config file"));
+      LittleFS.remove(CONFIG_TEMP_PATH);
+      return false;
+    }
   }
 
   if (!LittleFS.rename(CONFIG_TEMP_PATH, CONFIG_FILE_PATH)) {
+    Serial.println(F("Save failed: Could not rename temp file to config file"));
     LittleFS.remove(CONFIG_TEMP_PATH);
     return false;
   }
