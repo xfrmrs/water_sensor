@@ -126,18 +126,6 @@ static unsigned long readEchoUsOnce() {
   return pulseIn(activeEchoPin, HIGH, config.pulseTimeoutUs);
 }
 
-static void sortEchoSamples(unsigned long *samples, uint8_t countSamples) {
-  for (uint8_t i = 1; i < countSamples; ++i) {
-    unsigned long key = samples[i];
-    int8_t j = (int8_t)i - 1;
-    while ((j >= 0) && (samples[j] > key)) {
-      samples[j + 1] = samples[j];
-      --j;
-    }
-    samples[j + 1] = key;
-  }
-}
-
 static unsigned long readMedianEchoUs() {
   unsigned long samples[MAX_PING_BUFFER_CAPACITY];
   uint8_t validCount = 0;
@@ -146,7 +134,13 @@ static unsigned long readMedianEchoUs() {
     unsigned long echoUs = readEchoUsOnce();
 
     if ((echoUs >= config.minValidEchoUs) && (echoUs <= config.waterErrUs)) {
-      samples[validCount++] = echoUs;
+      int8_t j = (int8_t)validCount - 1;
+      while ((j >= 0) && (samples[j] > echoUs)) {
+        samples[j + 1] = samples[j];
+        --j;
+      }
+      samples[j + 1] = echoUs;
+      validCount++;
     }
 
     if (i + 1 < config.nPings) {
@@ -159,7 +153,6 @@ static unsigned long readMedianEchoUs() {
     return 0;
   }
 
-  sortEchoSamples(samples, validCount);
   return samples[validCount / 2];
 }
 
