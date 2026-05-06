@@ -126,32 +126,31 @@ static unsigned long readEchoUsOnce() {
   return pulseIn(activeEchoPin, HIGH, config.pulseTimeoutUs);
 }
 
-static void sortEchoSamples(unsigned long *samples, uint8_t countSamples) {
-  for (uint8_t i = 1; i < countSamples; ++i) {
-    unsigned long key = samples[i];
-    int8_t j = (int8_t)i - 1;
-    while ((j >= 0) && (samples[j] > key)) {
-      samples[j + 1] = samples[j];
-      --j;
-    }
-    samples[j + 1] = key;
-  }
-}
-
 static unsigned long readMedianEchoUs() {
   unsigned long samples[MAX_PING_BUFFER_CAPACITY];
   uint8_t validCount = 0;
+  unsigned long startMs = millis();
 
   for (uint8_t i = 0; i < config.nPings; ++i) {
     unsigned long echoUs = readEchoUsOnce();
 
     if ((echoUs >= config.minValidEchoUs) && (echoUs <= config.waterErrUs)) {
-      samples[validCount++] = echoUs;
+      int8_t j = (int8_t)validCount - 1;
+      while ((j >= 0) && (samples[j] > echoUs)) {
+        samples[j + 1] = samples[j];
+        --j;
+      }
+      samples[j + 1] = echoUs;
+      validCount++;
     }
 
     if (i + 1 < config.nPings) {
       delay(config.pingGapMs);
-      yield();
+      unsigned long nowMs = millis();
+      if (nowMs - startMs >= 50) {
+        yield();
+        startMs = nowMs;
+      }
     }
   }
 
@@ -159,7 +158,6 @@ static unsigned long readMedianEchoUs() {
     return 0;
   }
 
-  sortEchoSamples(samples, validCount);
   return samples[validCount / 2];
 }
 
@@ -252,19 +250,39 @@ MeasurementSnapshot measureWaterLevel() {
   return snapshot;
 }
 
+static void handleMeasurementError(MeasurementSnapshot &snapshot) {
+  setWaterOutput(false);
+  setErrorIndicator(true);
+  filling = false;
+  count = 0;
+  setSnapshotValid(snapshot, false);
+  setSnapshotFilling(snapshot, false);
+  setSnapshotWaterOutputOn(snapshot, false);
+  snapshot.state = MEASUREMENT_STATE_ERROR;
+}
+
+static bool checkWaterTimeout(MeasurementSnapshot &snapshot) {
+  if (filling) {
+    ++count;
+    if (count > (int)config.waterMaxDuration) {
+      if (config.debugControlLogs) {
+        Serial.println(F("water LOW too long, STOP water"));
+      }
+      handleMeasurementError(snapshot);
+      return true;
+    }
+  } else {
+    count = 0;
+  }
+  return false;
+}
+
 void applyMeasurementControl(MeasurementSnapshot &snapshot) {
   if (!snapshotValid(snapshot)) {
     if (config.debugControlLogs) {
       Serial.println(F("water reading invalid, STOP water"));
     }
-
-    setWaterOutput(false);
-    setErrorIndicator(true);
-    filling = false;
-    count = 0;
-    setSnapshotFilling(snapshot, false);
-    setSnapshotWaterOutputOn(snapshot, false);
-    snapshot.state = MEASUREMENT_STATE_ERROR;
+    handleMeasurementError(snapshot);
     return;
   }
 
@@ -274,43 +292,23 @@ void applyMeasurementControl(MeasurementSnapshot &snapshot) {
     if (config.debugControlLogs) {
       Serial.println(F("water HIGH, STOP water"));
     }
-
     setWaterOutput(false);
     filling = false;
     count = 0;
   } else if (WaterLow(snapshot.filteredUs)) {
-    if (filling) {
-      ++count;
-      if (count > (int)config.waterMaxDuration) {
-        if (config.debugControlLogs) {
-          Serial.println(F("water LOW too long, STOP water"));
-        }
-
-        setWaterOutput(false);
-        filling = false;
-        count = 0;
-        setSnapshotValid(snapshot, false);
-        snapshot.state = MEASUREMENT_STATE_ERROR;
-        setErrorIndicator(true);
-        setSnapshotFilling(snapshot, false);
-        setSnapshotWaterOutputOn(snapshot, false);
-        return;
-      }
-    } else {
-      count = 0;
+    if (checkWaterTimeout(snapshot)) {
+      return;
     }
 
     if (config.debugControlLogs) {
       Serial.println(F("water LOW, START water"));
     }
-
     setWaterOutput(true);
     filling = true;
   } else {
     if (config.debugControlLogs) {
       Serial.println(F("water NORMAL, keep current state"));
     }
-
     if (!filling) {
       setWaterOutput(false);
     }
