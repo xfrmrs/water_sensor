@@ -1,3 +1,4 @@
+run_tests
 
 # Compiled test binaries
 tests/test_runner
