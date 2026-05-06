@@ -357,11 +357,13 @@ void writeMeasurementJsonObject(JsonOutput &output, const MeasurementSnapshot &s
   jsonWrite(output, "}");
 }
 
-String buildMeasurementJson(const MeasurementSnapshot &snapshot) {
+String buildTelemetryMessage(const MeasurementSnapshot &snapshot) {
   String json;
-  json.reserve(320);
+  json.reserve(320 + 48);
+  json += F("{\"type\":\"telemetry\",\"data\":");
   JsonOutput output = makeStringJsonOutput(json);
   writeMeasurementJsonObject(output, snapshot);
+  json += '}';
   return json;
 }
 
