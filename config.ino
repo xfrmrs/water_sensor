@@ -522,7 +522,9 @@ bool restartSensitiveSettingsDiffer(const Config &left, const Config &right) {
          left.errLedPin != right.errLedPin ||
          left.serialBaud != right.serialBaud ||
          left.httpPort != right.httpPort ||
-         left.websocketPort != right.websocketPort;
+         left.websocketPort != right.websocketPort ||
+         left.historyCapacity != right.historyCapacity ||
+         left.maxConfigurablePings != right.maxConfigurablePings;
 }
 
 bool networkSettingsDiffer(const Config &left, const Config &right) {
