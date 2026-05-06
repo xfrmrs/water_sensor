@@ -217,12 +217,12 @@ static void flushEscapedJsonBuffer(JsonOutput &output, char *buffer, uint8_t &us
   used = 0;
 }
 
-void writeEscapedJsonString(JsonOutput &output, const String &value) {
+static void writeEscapedJsonInternal(JsonOutput &output, const char *value, size_t length) {
   char buffer[24];
   uint8_t used = 0;
 
-  for (size_t i = 0; i < value.length(); ++i) {
-    const char current = value.charAt(i);
+  for (size_t i = 0; i < length; ++i) {
+    const char current = value[i];
     const char *escapeSequence = nullptr;
 
     switch (current) {
@@ -260,47 +260,12 @@ void writeEscapedJsonString(JsonOutput &output, const String &value) {
   flushEscapedJsonBuffer(output, buffer, used);
 }
 
+void writeEscapedJsonString(JsonOutput &output, const String &value) {
+  writeEscapedJsonInternal(output, value.c_str(), value.length());
+}
+
 void writeEscapedJsonCString(JsonOutput &output, const char *value) {
-  char buffer[24];
-  uint8_t used = 0;
-
-  while (*value != '\0') {
-    const char current = *value++;
-    const char *escapeSequence = nullptr;
-
-    switch (current) {
-      case '\\':
-        escapeSequence = "\\\\";
-        break;
-      case '"':
-        escapeSequence = "\\\"";
-        break;
-      case '\n':
-        escapeSequence = "\\n";
-        break;
-      case '\r':
-        escapeSequence = "\\r";
-        break;
-      case '\t':
-        escapeSequence = "\\t";
-        break;
-      default:
-        break;
-    }
-
-    if (escapeSequence != nullptr) {
-      flushEscapedJsonBuffer(output, buffer, used);
-      jsonWrite(output, escapeSequence);
-      continue;
-    }
-
-    buffer[used++] = current;
-    if (used >= (sizeof(buffer) - 1)) {
-      flushEscapedJsonBuffer(output, buffer, used);
-    }
-  }
-
-  flushEscapedJsonBuffer(output, buffer, used);
+  writeEscapedJsonInternal(output, value, strlen(value));
 }
 
 void writeJsonFieldPrefix(JsonOutput &output, bool &first, const char *key) {
