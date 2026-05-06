@@ -208,39 +208,28 @@ void writeStatusJsonObject(JsonOutput &output) {
   jsonWrite(output, "}");
 }
 
-String buildStatusJson() {
+String buildStatusMessage() {
   String json;
-  json.reserve(1200);
+  json.reserve(1200 + 48);
+  json += F("{\"type\":\"status\",\"data\":");
   JsonOutput output = makeStringJsonOutput(json);
   writeStatusJsonObject(output);
-  return json;
-}
-
-String buildWebSocketMessage(const char *type, const String &dataJson) {
-  String json;
-  json.reserve(dataJson.length() + 48);
-  json += F("{\"type\":\"");
-  json += type;
-  json += F("\",\"data\":");
-  json += dataJson;
   json += '}';
   return json;
 }
 
-void broadcastJson(const char *type, const String &dataJson) {
+void broadcastStatus() {
   if (!webSocket) {
     return;
   }
-  String payload = buildWebSocketMessage(type, dataJson);
-  webSocket->broadcastTXT(payload);
-}
-
-void broadcastStatus() {
-  broadcastJson("status", buildStatusJson());
+  webSocket->broadcastTXT(buildStatusMessage());
 }
 
 void broadcastTelemetry(const MeasurementSnapshot &snapshot) {
-  broadcastJson("telemetry", buildMeasurementJson(snapshot));
+  if (!webSocket) {
+    return;
+  }
+  webSocket->broadcastTXT(buildTelemetryMessage(snapshot));
 }
 
 void handleWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
@@ -248,7 +237,7 @@ void handleWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t l
   (void)length;
 
   if (type == WStype_CONNECTED) {
-    String payload = buildWebSocketMessage("status", buildStatusJson());
+    String payload = buildStatusMessage();
     if (webSocket) {
       webSocket->sendTXT(num, payload);
     }
