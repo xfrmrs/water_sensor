@@ -252,19 +252,39 @@ MeasurementSnapshot measureWaterLevel() {
   return snapshot;
 }
 
+static void handleMeasurementError(MeasurementSnapshot &snapshot) {
+  setWaterOutput(false);
+  setErrorIndicator(true);
+  filling = false;
+  count = 0;
+  setSnapshotValid(snapshot, false);
+  setSnapshotFilling(snapshot, false);
+  setSnapshotWaterOutputOn(snapshot, false);
+  snapshot.state = MEASUREMENT_STATE_ERROR;
+}
+
+static bool checkWaterTimeout(MeasurementSnapshot &snapshot) {
+  if (filling) {
+    ++count;
+    if (count > (int)config.waterMaxDuration) {
+      if (config.debugControlLogs) {
+        Serial.println(F("water LOW too long, STOP water"));
+      }
+      handleMeasurementError(snapshot);
+      return true;
+    }
+  } else {
+    count = 0;
+  }
+  return false;
+}
+
 void applyMeasurementControl(MeasurementSnapshot &snapshot) {
   if (!snapshotValid(snapshot)) {
     if (config.debugControlLogs) {
       Serial.println(F("water reading invalid, STOP water"));
     }
-
-    setWaterOutput(false);
-    setErrorIndicator(true);
-    filling = false;
-    count = 0;
-    setSnapshotFilling(snapshot, false);
-    setSnapshotWaterOutputOn(snapshot, false);
-    snapshot.state = MEASUREMENT_STATE_ERROR;
+    handleMeasurementError(snapshot);
     return;
   }
 
@@ -274,43 +294,23 @@ void applyMeasurementControl(MeasurementSnapshot &snapshot) {
     if (config.debugControlLogs) {
       Serial.println(F("water HIGH, STOP water"));
     }
-
     setWaterOutput(false);
     filling = false;
     count = 0;
   } else if (WaterLow(snapshot.filteredUs)) {
-    if (filling) {
-      ++count;
-      if (count > (int)config.waterMaxDuration) {
-        if (config.debugControlLogs) {
-          Serial.println(F("water LOW too long, STOP water"));
-        }
-
-        setWaterOutput(false);
-        filling = false;
-        count = 0;
-        setSnapshotValid(snapshot, false);
-        snapshot.state = MEASUREMENT_STATE_ERROR;
-        setErrorIndicator(true);
-        setSnapshotFilling(snapshot, false);
-        setSnapshotWaterOutputOn(snapshot, false);
-        return;
-      }
-    } else {
-      count = 0;
+    if (checkWaterTimeout(snapshot)) {
+      return;
     }
 
     if (config.debugControlLogs) {
       Serial.println(F("water LOW, START water"));
     }
-
     setWaterOutput(true);
     filling = true;
   } else {
     if (config.debugControlLogs) {
       Serial.println(F("water NORMAL, keep current state"));
     }
-
     if (!filling) {
       setWaterOutput(false);
     }
