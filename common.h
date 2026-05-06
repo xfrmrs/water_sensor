@@ -86,6 +86,7 @@ struct Config {
   String wifiApIp;
   String wifiApGateway;
   String wifiApSubnet;
+  String adminPassword;
   unsigned long wifiStaConnectTimeoutMs;
   unsigned long httpPort;
   unsigned long websocketPort;

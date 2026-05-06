@@ -27,7 +27,10 @@ Install these Arduino packages:
 2. Upload the full `data/` filesystem image to LittleFS so `index.html`, `app.js`, `style.css`, and `config.json` are available on the device.
 3. Connect to the setup AP named `WaterSensorSetup`.
 4. Open the device page at `http://10.0.0.47/`.
-5. Review the live dashboard, graph, and editable settings.
+5. Log in with the default credentials:
+   - Username: `admin`
+   - Password: `admin`
+6. Review the live dashboard, graph, and editable settings.
 6. Enter your local Wi-Fi SSID/password and any water-level, filter, hardware, or debug values you want.
 7. Save the settings. Station and AP network changes are applied live. Pin and serial changes are saved immediately but require a reboot from the dashboard before they take effect.
 
@@ -35,7 +38,11 @@ Install these Arduino packages:
 
 The runtime settings are stored at `/config.json` on LittleFS. If the file is missing or invalid, the sketch recreates it from built-in defaults.
 
-The dashboard intentionally does not echo stored Wi-Fi passwords back to the browser:
+## Security
+
+The dashboard is protected by HTTP Basic Authentication. The default username is `admin` and the default password is `admin`. It is highly recommended to change the admin password in the Security section of the settings after first login.
+
+The dashboard intentionally does not echo stored passwords (Wi-Fi or Admin) back to the browser:
 
 - leave a password field blank to keep the existing stored password
 - enter a new password to replace it

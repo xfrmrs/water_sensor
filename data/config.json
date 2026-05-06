@@ -35,6 +35,7 @@
   "wifiApIp": "10.0.0.47",
   "wifiApGateway": "10.0.0.47",
   "wifiApSubnet": "255.0.0.0",
+  "adminPassword": "admin",
   "wifiStaConnectTimeoutMs": 15000,
   "httpPort": 80,
   "websocketPort": 81,
