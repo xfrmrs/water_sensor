@@ -1,3 +1,4 @@
+tests/test_network_settings
 run_tests
 
 # Compiled test binaries

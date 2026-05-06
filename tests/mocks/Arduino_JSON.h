@@ -1,4 +1,9 @@
 #pragma once
+#include <string>
+class JSONVar {
+public:
+    bool hasOwnProperty(const char*) const { return false; }
+    JSONVar operator[](const char*) const { return JSONVar(); }
 #include "Arduino.h"
 
 class JSONVar {
@@ -19,6 +24,11 @@ public:
 
 class JSONClass {
 public:
+    JSONVar parse(const std::string&) { return JSONVar(); }
+    std::string typeof_(const JSONVar&) { return "undefined"; }
+};
+extern JSONClass JSON;
+#define typeof typeof_
     String typeof_(const JSONVar& v) {
         return String(v.type_str.c_str());
     }
