@@ -304,6 +304,19 @@ static void sendJsonErrorResponse(int statusCode, const String &message) {
   }
 }
 
+static bool checkAuth() {
+  if (config.adminPassword.length() == 0) {
+    return true;
+  }
+
+  if (!server->authenticate("admin", config.adminPassword.c_str())) {
+    server->requestAuthentication();
+    return false;
+  }
+
+  return true;
+}
+
 void handleRoot() {
   if (!sendStaticFile(INDEX_FILE_PATH, "text/html")) {
     if (server) {
@@ -313,6 +326,9 @@ void handleRoot() {
 }
 
 void handleBootstrap() {
+  if (!checkAuth()) {
+    return;
+  }
   beginStreamingJsonResponse(200);
   JsonOutput output = makeHttpJsonOutput();
   bool first = true;
@@ -363,6 +379,9 @@ void handleBootstrap() {
 }
 
 void handleConfigSave() {
+  if (!checkAuth()) {
+    return;
+  }
   Config previousConfig = config;
   Config candidate = config;
   String errorMessage;
@@ -426,6 +445,9 @@ void handleConfigSave() {
 }
 
 void handleRestart() {
+  if (!checkAuth()) {
+    return;
+  }
   uiStatusMessage = F("Restart requested. The device is rebooting.");
   restartPending = true;
   restartAfterMs = millis() + 750UL;
@@ -446,6 +468,11 @@ void handleRestart() {
 
 void handleNotFound() {
   String path = server ? server->uri() : String();
+  if (path.endsWith(F("/config.json")) || path.endsWith(F("/config.tmp"))) {
+    sendJsonErrorResponse(403, F("Forbidden"));
+    return;
+  }
+
   String contentType = detectContentType(path);
   if (sendStaticFile(path.c_str(), contentType.c_str())) {
     return;
@@ -480,6 +507,9 @@ void configureWebServer() {
 void configureWebSocket() {
   if (!webSocket) {
     return;
+  }
+  if (config.adminPassword.length() > 0) {
+    webSocket->setAuthorization("admin", config.adminPassword.c_str());
   }
   webSocket->begin();
   webSocket->onEvent(handleWebSocketEvent);

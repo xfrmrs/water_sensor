@@ -73,6 +73,7 @@ static const ConfigFieldDescriptor SHARED_CONFIG_FIELDS[] = {
   {"wifiApIp", offsetof(Config, wifiApIp), CONFIG_FIELD_STRING, true, false},
   {"wifiApGateway", offsetof(Config, wifiApGateway), CONFIG_FIELD_STRING, true, false},
   {"wifiApSubnet", offsetof(Config, wifiApSubnet), CONFIG_FIELD_STRING, true, false},
+  {"adminPassword", offsetof(Config, adminPassword), CONFIG_FIELD_STRING, false, false},
   {"wifiStaConnectTimeoutMs", offsetof(Config, wifiStaConnectTimeoutMs), CONFIG_FIELD_ULONG, false, false},
   {"httpPort", offsetof(Config, httpPort), CONFIG_FIELD_ULONG, false, true},
   {"websocketPort", offsetof(Config, websocketPort), CONFIG_FIELD_ULONG, false, true},
@@ -185,7 +186,6 @@ static const ConfigJsonFieldDescriptor CONFIG_JSON_FIELDS[] = {
   {"shortConfirmCount", offsetof(Config, shortConfirmCount), CONFIG_FIELD_UINT8, 0},
   {"maxHeldInvalidBursts", offsetof(Config, maxHeldInvalidBursts), CONFIG_FIELD_UINT8, 0},
   {"wifiStaSsid", offsetof(Config, wifiStaSsid), CONFIG_FIELD_STRING, 0},
-  {"wifiStaPassword", offsetof(Config, wifiStaPassword), CONFIG_FIELD_STRING, 0},
   {"enableStationDhcp", offsetof(Config, enableStationDhcp), CONFIG_FIELD_BOOL, 0},
   {"wifiApSsid", offsetof(Config, wifiApSsid), CONFIG_FIELD_STRING, 0},
   {"wifiStaIp", offsetof(Config, wifiStaIp), CONFIG_FIELD_STRING, 0},
@@ -234,11 +234,13 @@ void writeConfigJsonObject(JsonOutput &output, const Config &source, bool includ
   if (includeSecrets) {
     writeJsonStringField(output, first, "wifiStaPassword", source.wifiStaPassword);
     writeJsonStringField(output, first, "wifiApPassword", source.wifiApPassword);
+    writeJsonStringField(output, first, "adminPassword", source.adminPassword);
   }
 
   if (includePasswordFlags) {
     writeJsonBoolField(output, first, "hasStaPassword", source.wifiStaPassword.length() > 0);
     writeJsonBoolField(output, first, "hasApPassword", source.wifiApPassword.length() > 0);
+    writeJsonBoolField(output, first, "hasAdminPassword", source.adminPassword.length() > 0);
   }
 
   jsonWrite(output, "}");
@@ -256,6 +258,10 @@ bool configFromJson(const JSONVar &json, Config &candidate, String &errorMessage
   }
   if (!requireStringField(json, "wifiApPassword", parsed.wifiApPassword)) {
     setFieldError(errorMessage, "wifiApPassword");
+    return false;
+  }
+  if (!requireStringField(json, "adminPassword", parsed.adminPassword)) {
+    setFieldError(errorMessage, "adminPassword");
     return false;
   }
 
@@ -411,6 +417,11 @@ bool validateConfig(const Config &candidate, String &errorMessage) {
 
   if (candidate.wifiApPassword.length() > 0 && candidate.wifiApPassword.length() < 8) {
     errorMessage = F("Setup AP password must be blank or at least 8 characters.");
+    return false;
+  }
+
+  if (candidate.adminPassword.length() < 4) {
+    errorMessage = F("Admin password must be at least 4 characters.");
     return false;
   }
 
@@ -604,8 +615,10 @@ bool parseConfigFromRequestBody(Config &candidate, String &errorMessage) {
 
   bool clearStaPassword = false;
   bool clearApPassword = false;
+  bool clearAdminPassword = false;
   String staPasswordInput = "";
   String apPasswordInput = "";
+  String adminPasswordInput = "";
 
   if (json.hasOwnProperty("clearStaPassword") && !jsonVarToBool(json["clearStaPassword"], clearStaPassword)) {
     errorMessage = F("Invalid field: clearStaPassword");
@@ -615,12 +628,20 @@ bool parseConfigFromRequestBody(Config &candidate, String &errorMessage) {
     errorMessage = F("Invalid field: clearApPassword");
     return false;
   }
+  if (json.hasOwnProperty("clearAdminPassword") && !jsonVarToBool(json["clearAdminPassword"], clearAdminPassword)) {
+    errorMessage = F("Invalid field: clearAdminPassword");
+    return false;
+  }
   if (json.hasOwnProperty("wifiStaPassword") && !jsonVarToString(json["wifiStaPassword"], staPasswordInput)) {
     errorMessage = F("Invalid field: wifiStaPassword");
     return false;
   }
   if (json.hasOwnProperty("wifiApPassword") && !jsonVarToString(json["wifiApPassword"], apPasswordInput)) {
     errorMessage = F("Invalid field: wifiApPassword");
+    return false;
+  }
+  if (json.hasOwnProperty("adminPassword") && !jsonVarToString(json["adminPassword"], adminPasswordInput)) {
+    errorMessage = F("Invalid field: adminPassword");
     return false;
   }
 
@@ -634,6 +655,12 @@ bool parseConfigFromRequestBody(Config &candidate, String &errorMessage) {
     parsed.wifiApPassword = apPasswordInput;
   } else if (clearApPassword) {
     parsed.wifiApPassword = "";
+  }
+
+  if (adminPasswordInput.length() > 0) {
+    parsed.adminPassword = adminPasswordInput;
+  } else if (clearAdminPassword) {
+    parsed.adminPassword = "";
   }
 
   candidate = parsed;

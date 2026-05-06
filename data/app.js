@@ -91,6 +91,19 @@ const FIELD_SECTIONS = [
       { key: "wifiApGateway", label: "Setup AP gateway", type: "text", placeholder: "10.0.0.47" },
       { key: "wifiApSubnet", label: "Setup AP subnet", type: "text", placeholder: "255.0.0.0" }
     ]
+  },
+  {
+    title: "Security",
+    description: "Manage administrative access to the device settings.",
+    fields: [
+      {
+        key: "adminPassword",
+        label: "Admin password",
+        type: "password",
+        clearKey: "clearAdminPassword",
+        storedFlag: "hasAdminPassword"
+      }
+    ]
   }
 ];
 
