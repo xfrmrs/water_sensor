@@ -274,13 +274,7 @@ bool parseIpAddressString(const String &value, IPAddress &parsedValue) {
 }
 
 bool isSafePinValue(uint8_t pinValue) {
-  for (size_t i = 0; i < (sizeof(SAFE_GPIO_VALUES) / sizeof(SAFE_GPIO_VALUES[0])); ++i) {
-    if (SAFE_GPIO_VALUES[i] == pinValue) {
-      return true;
-    }
-  }
-
-  return false;
+  return pinValue < 32 && (SAFE_GPIO_MASK & (1UL << pinValue));
 }
 
 bool arePinsUnique(const Config &candidate) {

@@ -20,7 +20,9 @@ static const uint16_t BOOT_WEBSOCKET_PORT = 81;
 static const uint8_t MAX_PING_BUFFER_CAPACITY = 12;
 static const size_t MAX_HISTORY_BUFFER_CAPACITY = 120;
 static const unsigned long BOOT_SERIAL_BAUD = 74880UL;
+// IMPORTANT: If you update SAFE_GPIO_VALUES, you must also update SAFE_GPIO_MASK.
 static const uint8_t SAFE_GPIO_VALUES[] = {4, 5, 12, 13, 14, 16};
+static const uint32_t SAFE_GPIO_MASK = (1UL << 4) | (1UL << 5) | (1UL << 12) | (1UL << 13) | (1UL << 14) | (1UL << 16);
 static const unsigned long SUPPORTED_SERIAL_BAUDS[] = {
   9600UL,
   19200UL,
