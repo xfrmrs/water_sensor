@@ -145,7 +145,15 @@ static unsigned long readMedianEchoUs() {
     }
 
     if (i + 1 < config.nPings) {
-      delay(config.pingGapMs);
+      unsigned long waitStartUs = micros();
+      unsigned long targetWaitUs = config.pingGapMs * 1000UL;
+      while (micros() - waitStartUs < targetWaitUs) {
+        unsigned long nowMs = millis();
+        if (nowMs - startMs >= 50) {
+          yield();
+          startMs = nowMs;
+        }
+      }
       unsigned long nowMs = millis();
       if (nowMs - startMs >= 50) {
         yield();
