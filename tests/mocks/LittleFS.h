@@ -1,4 +1,5 @@
 #pragma once
+class LittleFSClass {};
 class File {
 public:
     operator bool() const { return false; }

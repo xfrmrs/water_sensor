@@ -1,4 +1,5 @@
 #pragma once
+class ESP8266WebServer {};
 #include "WString.h"
 
 class ESP8266WebServer {

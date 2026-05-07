@@ -1,4 +1,6 @@
 #pragma once
+class JSONClass {};
+class JSONVar {};
 #include <string>
 #include "WString.h"
 
