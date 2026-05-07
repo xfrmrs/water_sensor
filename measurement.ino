@@ -145,11 +145,15 @@ static unsigned long readMedianEchoUs() {
     }
 
     if (i + 1 < config.nPings) {
-      delay(config.pingGapMs);
-      unsigned long nowMs = millis();
-      if (nowMs - startMs >= 50) {
-        yield();
-        startMs = nowMs;
+      if (config.pingGapMs > 0) {
+        delay(config.pingGapMs);
+        startMs = millis();
+      } else {
+        unsigned long nowMs = millis();
+        if (nowMs - startMs >= 50) {
+          yield();
+          startMs = nowMs;
+        }
       }
     }
   }
