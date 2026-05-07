@@ -146,11 +146,13 @@ static unsigned long readMedianEchoUs() {
 
     if (i + 1 < config.nPings) {
       delay(config.pingGapMs);
-      unsigned long nowMs = millis();
-      if (nowMs - startMs >= 50) {
-        yield();
-        startMs = nowMs;
-      }
+
+      // Delay internally yields on ESP8266, meaning the elapsed time
+      // might have significantly jumped past our 50ms interval.
+      // We don't need to manually yield, but we do need to update
+      // our tracking timer to avoid a redundant explicit yield
+      // on the *next* iteration or soon after.
+      startMs = millis();
     }
   }
 
