@@ -43,28 +43,70 @@ SerialMock Serial;
 LittleFSMock LittleFS;
 JSONMock JSON;
 
+#include <map>
+
+std::map<std::string, bool> mock_bool_values;
+std::map<std::string, uint8_t> mock_uint8_values;
+std::map<std::string, unsigned long> mock_ulong_values;
+std::map<std::string, float> mock_float_values;
+std::map<std::string, std::string> mock_string_values;
+
 String mock_fail_field = "";
 
 bool requireBoolField(const JSONVar &json, const char *name, bool &target) {
-    return mock_fail_field != String(name);
+    if (mock_fail_field == String(name)) return false;
+    if (mock_bool_values.count(name)) target = mock_bool_values[name];
+    return true;
 }
-bool optionalBoolField(const JSONVar &json, const char *name, bool &target) { return true; }
+bool optionalBoolField(const JSONVar &json, const char *name, bool &target) {
+    if (mock_bool_values.count(name)) target = mock_bool_values[name];
+    return true;
+}
 bool requireUint8Field(const JSONVar &json, const char *name, uint8_t &target) {
-    return mock_fail_field != String(name);
+    if (mock_fail_field == String(name)) return false;
+    if (mock_uint8_values.count(name)) target = mock_uint8_values[name];
+    return true;
 }
-bool optionalUint8Field(const JSONVar &json, const char *name, uint8_t &target) { return true; }
+bool optionalUint8Field(const JSONVar &json, const char *name, uint8_t &target) {
+    if (mock_uint8_values.count(name)) target = mock_uint8_values[name];
+    return true;
+}
 bool requireUnsignedLongField(const JSONVar &json, const char *name, unsigned long &target) {
-    return mock_fail_field != String(name);
+    if (mock_fail_field == String(name)) return false;
+    if (mock_ulong_values.count(name)) target = mock_ulong_values[name];
+    return true;
 }
-bool optionalUnsignedLongField(const JSONVar &json, const char *name, unsigned long &target) { return true; }
+bool optionalUnsignedLongField(const JSONVar &json, const char *name, unsigned long &target) {
+    if (mock_ulong_values.count(name)) target = mock_ulong_values[name];
+    return true;
+}
 bool requireFloatField(const JSONVar &json, const char *name, float &target) {
-    return mock_fail_field != String(name);
+    if (mock_fail_field == String(name)) return false;
+    if (mock_float_values.count(name)) target = mock_float_values[name];
+    return true;
 }
-bool optionalFloatField(const JSONVar &json, const char *name, float &target) { return true; }
+bool optionalFloatField(const JSONVar &json, const char *name, float &target) {
+    if (mock_float_values.count(name)) target = mock_float_values[name];
+    return true;
+}
 bool requireStringField(const JSONVar &json, const char *name, String &target) {
-    return mock_fail_field != String(name);
+    if (mock_fail_field == String(name)) return false;
+    if (mock_string_values.count(name)) target = String(mock_string_values[name].c_str());
+    return true;
 }
-bool optionalStringField(const JSONVar &json, const char *name, String &target) { return true; }
+bool optionalStringField(const JSONVar &json, const char *name, String &target) {
+    if (mock_string_values.count(name)) target = String(mock_string_values[name].c_str());
+    return true;
+}
+
+void reset_mocks() {
+    mock_fail_field = "";
+    mock_bool_values.clear();
+    mock_uint8_values.clear();
+    mock_ulong_values.clear();
+    mock_float_values.clear();
+    mock_string_values.clear();
+}
 
 void writeJsonBoolField(JsonOutput &output, bool &first, const char *key, bool value) {
   if (output.context) {
@@ -202,11 +244,27 @@ void test_configFromJson_success() {
     Config candidate;
     String errorMessage;
 
-    mock_fail_field = ""; // ensure no failures in fields
+    reset_mocks();
+
+    mock_string_values["wifiStaPassword"] = "test_sta_pass";
+    mock_string_values["wifiApPassword"] = "test_ap_pass";
+    mock_string_values["adminPassword"] = "test_admin_pass";
+    mock_bool_values["debugControlLogs"] = true;
+    mock_uint8_values["trigPin"] = 42;
+    mock_ulong_values["serialBaud"] = 115200;
+    mock_float_values["kalmanMeasurementError"] = 0.5f;
 
     bool result = configFromJson(json, candidate, errorMessage);
     assert(result == true);
     assert(errorMessage == "");
+
+    assert(candidate.wifiStaPassword == "test_sta_pass");
+    assert(candidate.wifiApPassword == "test_ap_pass");
+    assert(candidate.adminPassword == "test_admin_pass");
+    assert(candidate.debugControlLogs == true);
+    assert(candidate.trigPin == 42);
+    assert(candidate.serialBaud == 115200);
+    assert(candidate.kalmanMeasurementError == 0.5f);
 }
 
 void test_configFromJson_missing_wifiStaPassword() {
@@ -214,6 +272,7 @@ void test_configFromJson_missing_wifiStaPassword() {
     Config candidate;
     String errorMessage;
 
+    reset_mocks();
     mock_fail_field = "wifiStaPassword";
 
     bool result = configFromJson(json, candidate, errorMessage);
@@ -226,6 +285,7 @@ void test_configFromJson_missing_wifiApPassword() {
     Config candidate;
     String errorMessage;
 
+    reset_mocks();
     mock_fail_field = "wifiApPassword";
 
     bool result = configFromJson(json, candidate, errorMessage);
@@ -238,6 +298,7 @@ void test_configFromJson_missing_adminPassword() {
     Config candidate;
     String errorMessage;
 
+    reset_mocks();
     mock_fail_field = "adminPassword";
 
     bool result = configFromJson(json, candidate, errorMessage);
@@ -250,6 +311,7 @@ void test_configFromJson_missing_shared_field() {
     Config candidate;
     String errorMessage;
 
+    reset_mocks();
     mock_fail_field = "wifiApSsid";
 
     bool result = configFromJson(json, candidate, errorMessage);
