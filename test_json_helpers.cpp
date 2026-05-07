@@ -44,6 +44,16 @@ public:
     bool hasOwnProperty(const char* name) const { (void)name; return false; }
     JSONVar operator[](const char* name) const { (void)name; return JSONVar("undefined", "undefined"); }
     explicit operator const char*() const { return str_val.c_str(); }
+    explicit operator unsigned long() const {
+        char* end;
+        unsigned long val = std::strtoul(str_val.c_str(), &end, 10);
+        return (end != str_val.c_str()) ? val : 0;
+    }
+    explicit operator double() const {
+        char* end;
+        double val = std::strtod(str_val.c_str(), &end);
+        return (end != str_val.c_str()) ? val : 0;
+    }
 };
 
 class JSON_Class {
@@ -124,7 +134,7 @@ TEST(test_number_zero) {
 
 TEST(test_number_invalid_format) {
     bool parsed = true;
-    bool success = jsonVarToBool(JSONVar("number", "1.5"), parsed);
+    bool success = jsonVarToBool(JSONVar("string", "1.5"), parsed);
     ASSERT_TRUE(success == false);
     // When parsing fails, parsedValue shouldn't change
     ASSERT_TRUE(parsed == true);
@@ -144,6 +154,41 @@ TEST(test_undefined_type) {
     ASSERT_TRUE(parsed == true);
 }
 
+
+TEST(test_string_valid) {
+    String parsed = "initial";
+    bool success = jsonVarToString(JSONVar("string", "hello world"), parsed);
+    ASSERT_TRUE(success == true);
+    ASSERT_TRUE(parsed == "hello world");
+}
+
+TEST(test_string_empty) {
+    String parsed = "initial";
+    bool success = jsonVarToString(JSONVar("string", ""), parsed);
+    ASSERT_TRUE(success == true);
+    ASSERT_TRUE(parsed == "");
+}
+
+TEST(test_string_wrong_type_number) {
+    String parsed = "initial";
+    bool success = jsonVarToString(JSONVar("number", "123"), parsed);
+    ASSERT_TRUE(success == false);
+    ASSERT_TRUE(parsed == "initial");
+}
+
+TEST(test_string_wrong_type_boolean) {
+    String parsed = "initial";
+    bool success = jsonVarToString(JSONVar("boolean", "true"), parsed);
+    ASSERT_TRUE(success == false);
+    ASSERT_TRUE(parsed == "initial");
+}
+
+TEST(test_string_wrong_type_undefined) {
+    String parsed = "initial";
+    bool success = jsonVarToString(JSONVar("undefined", "undefined"), parsed);
+    ASSERT_TRUE(success == false);
+    ASSERT_TRUE(parsed == "initial");
+}
 int main() {
     int failed = 0;
     for (const auto& test : tests) {
