@@ -6,7 +6,7 @@ echo "Running test_json_helpers..."
 ./test_json_helpers
 
 echo "Compiling test_config.cpp..."
-g++ -I. -I./test_mocks test_config.cpp ip_utils.cpp -o run_tests -DARDUINO
+g++ -I. -I./test_mocks test_config.cpp test_mocks/LittleFS.cpp ip_utils.cpp -o run_tests -DARDUINO
 
 echo "Running test_config..."
 ./run_tests

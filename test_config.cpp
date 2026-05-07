@@ -156,7 +156,7 @@ void printConfigSummary(const Config &source, const __FlashStringHelper *label);
 #include "config.ino"
 #undef typeof
 
-#include "ip_utils.cpp"
+
 
 #include <cassert>
 #include <iostream>
@@ -260,6 +260,13 @@ void test_writeConfigJsonObject_WithSecretsAndFlags();
 void test_writeConfigJsonObject_NoSecretsButWithFlags();
 void test_writeConfigJsonObject_NoSecretsNoFlags();
 
+void test_saveConfigToFs_fsNotReady();
+void test_saveConfigToFs_openFails();
+void test_saveConfigToFs_printIncomplete();
+void test_saveConfigToFs_removeFails();
+void test_saveConfigToFs_renameFails();
+void test_saveConfigToFs_success();
+
 int main() {
     test_arePinsUnique_all_unique();
     test_arePinsUnique_duplicate_trig_echo();
@@ -277,6 +284,14 @@ int main() {
     test_writeConfigJsonObject_NoSecretsButWithFlags();
     test_writeConfigJsonObject_NoSecretsNoFlags();
     std::cout << "All writeConfigJsonObject tests passed!" << std::endl;
+
+    test_saveConfigToFs_fsNotReady();
+    test_saveConfigToFs_openFails();
+    test_saveConfigToFs_printIncomplete();
+    test_saveConfigToFs_removeFails();
+    test_saveConfigToFs_renameFails();
+    test_saveConfigToFs_success();
+    std::cout << "All saveConfigToFs tests passed!" << std::endl;
 
     return 0;
 }
@@ -344,4 +359,83 @@ void test_writeConfigJsonObject_NoSecretsNoFlags() {
 
 void register_writeConfigJsonObject_tests() {
     // Modify main below to call these tests or just do it here temporarily
+}
+
+void test_saveConfigToFs_fsNotReady() {
+    littleFsMockState.reset();
+    fileSystemReady = false;
+    assert(saveConfigToFs() == false);
+    std::cout << "test_saveConfigToFs_fsNotReady passed!\n";
+}
+
+void test_saveConfigToFs_openFails() {
+    littleFsMockState.reset();
+    fileSystemReady = true;
+    littleFsMockState.openResult = false;
+    assert(saveConfigToFs() == false);
+    assert(littleFsMockState.openCount == 1);
+    assert(littleFsMockState.lastOpenedPath == CONFIG_TEMP_PATH);
+    assert(littleFsMockState.lastOpenedMode == "w");
+    std::cout << "test_saveConfigToFs_openFails passed!\n";
+}
+
+void test_saveConfigToFs_printIncomplete() {
+    littleFsMockState.reset();
+    fileSystemReady = true;
+    littleFsMockState.openResult = true;
+    // Simulate printing less than the full payload
+    littleFsMockState.printResult = 1;
+
+    assert(saveConfigToFs() == false);
+    assert(littleFsMockState.removeCount == 1);
+    assert(littleFsMockState.lastRemovedPath == CONFIG_TEMP_PATH);
+    std::cout << "test_saveConfigToFs_printIncomplete passed!\n";
+}
+
+void test_saveConfigToFs_removeFails() {
+    littleFsMockState.reset();
+    fileSystemReady = true;
+    littleFsMockState.openResult = true;
+    littleFsMockState.printResult = (size_t)-1; // Return full length
+    littleFsMockState.existsResult = true; // CONFIG_FILE_PATH exists
+    littleFsMockState.removeResult = false; // remove fails
+
+    assert(saveConfigToFs() == false);
+    assert(littleFsMockState.removeCount == 2); // 1 for exists, 1 for temp
+    assert(littleFsMockState.lastRemovedPath == "/config.tmp");
+    std::cout << "test_saveConfigToFs_removeFails passed!\n";
+}
+
+void test_saveConfigToFs_renameFails() {
+    littleFsMockState.reset();
+    fileSystemReady = true;
+    littleFsMockState.openResult = true;
+    littleFsMockState.printResult = (size_t)-1;
+    littleFsMockState.existsResult = false; // CONFIG_FILE_PATH does not exist
+    littleFsMockState.renameResult = false; // Rename fails
+
+    assert(saveConfigToFs() == false);
+    assert(littleFsMockState.renameCount == 1);
+    assert(littleFsMockState.removeCount == 1);
+    assert(littleFsMockState.lastRemovedPath == CONFIG_TEMP_PATH);
+    std::cout << "test_saveConfigToFs_renameFails passed!\n";
+}
+
+void test_saveConfigToFs_success() {
+    littleFsMockState.reset();
+    fileSystemReady = true;
+    littleFsMockState.openResult = true;
+    littleFsMockState.printResult = (size_t)-1;
+    littleFsMockState.existsResult = true;
+    littleFsMockState.removeResult = true;
+    littleFsMockState.renameResult = true;
+
+    assert(saveConfigToFs() == true);
+    assert(littleFsMockState.renameCount == 1);
+    assert(littleFsMockState.lastRenamedFrom == CONFIG_TEMP_PATH);
+    assert(littleFsMockState.lastRenamedTo == CONFIG_FILE_PATH);
+    // removeCount should be 1 because it removed the existing file
+    assert(littleFsMockState.removeCount == 1);
+    assert(littleFsMockState.lastRemovedPath == CONFIG_FILE_PATH);
+    std::cout << "test_saveConfigToFs_success passed!\n";
 }
