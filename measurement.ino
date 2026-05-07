@@ -1,4 +1,5 @@
 #include "common.h"
+#include <algorithm>
 
 static inline unsigned int usToCm(unsigned long echoUs) {
   return (unsigned int)((echoUs + 29UL) / 58UL);
@@ -135,13 +136,7 @@ static unsigned long readMedianEchoUs() {
     unsigned long echoUs = readEchoUsOnce();
 
     if ((echoUs >= config.minValidEchoUs) && (echoUs <= config.waterErrUs)) {
-      int8_t j = (int8_t)validCount - 1;
-      while ((j >= 0) && (samples[j] > echoUs)) {
-        samples[j + 1] = samples[j];
-        --j;
-      }
-      samples[j + 1] = echoUs;
-      validCount++;
+      samples[validCount++] = echoUs;
     }
 
     if (i + 1 < config.nPings) {
@@ -157,6 +152,8 @@ static unsigned long readMedianEchoUs() {
   if (validCount < config.minValidPings) {
     return 0;
   }
+
+  std::sort(samples, samples + validCount);
 
   return samples[validCount / 2];
 }
