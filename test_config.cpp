@@ -112,11 +112,96 @@ void test_arePinsUnique_all_same() {
     assert(arePinsUnique(c) == false);
 }
 
+void test_networkSettingsDiffer_identical() {
+    Config left;
+    left.wifiStaSsid = "MySSID";
+    left.wifiStaPassword = "MyPassword";
+    left.wifiApSsid = "MyAP";
+    left.wifiApPassword = "MyAPPassword";
+    left.wifiStaIp = "192.168.1.100";
+    left.wifiStaGateway = "192.168.1.1";
+    left.wifiStaSubnet = "255.255.255.0";
+    left.wifiApIp = "192.168.4.1";
+    left.wifiApGateway = "192.168.4.1";
+    left.wifiApSubnet = "255.255.255.0";
+    left.wifiStaConnectTimeoutMs = 15000;
+
+    Config right = left;
+    assert(networkSettingsDiffer(left, right) == false);
+}
+
+void test_networkSettingsDiffer_different_fields() {
+    Config left;
+    left.wifiStaSsid = "A";
+    left.wifiStaPassword = "A";
+    left.wifiApSsid = "A";
+    left.wifiApPassword = "A";
+    left.wifiStaIp = "A";
+    left.wifiStaGateway = "A";
+    left.wifiStaSubnet = "A";
+    left.wifiApIp = "A";
+    left.wifiApGateway = "A";
+    left.wifiApSubnet = "A";
+    left.wifiStaConnectTimeoutMs = 10000;
+
+    Config right = left;
+    assert(networkSettingsDiffer(left, right) == false);
+
+    right.wifiStaSsid = "B";
+    assert(networkSettingsDiffer(left, right) == true);
+    right.wifiStaSsid = left.wifiStaSsid;
+
+    right.wifiStaPassword = "B";
+    assert(networkSettingsDiffer(left, right) == true);
+    right.wifiStaPassword = left.wifiStaPassword;
+
+    right.wifiApSsid = "B";
+    assert(networkSettingsDiffer(left, right) == true);
+    right.wifiApSsid = left.wifiApSsid;
+
+    right.wifiApPassword = "B";
+    assert(networkSettingsDiffer(left, right) == true);
+    right.wifiApPassword = left.wifiApPassword;
+
+    right.wifiStaIp = "B";
+    assert(networkSettingsDiffer(left, right) == true);
+    right.wifiStaIp = left.wifiStaIp;
+
+    right.wifiStaGateway = "B";
+    assert(networkSettingsDiffer(left, right) == true);
+    right.wifiStaGateway = left.wifiStaGateway;
+
+    right.wifiStaSubnet = "B";
+    assert(networkSettingsDiffer(left, right) == true);
+    right.wifiStaSubnet = left.wifiStaSubnet;
+
+    right.wifiApIp = "B";
+    assert(networkSettingsDiffer(left, right) == true);
+    right.wifiApIp = left.wifiApIp;
+
+    right.wifiApGateway = "B";
+    assert(networkSettingsDiffer(left, right) == true);
+    right.wifiApGateway = left.wifiApGateway;
+
+    right.wifiApSubnet = "B";
+    assert(networkSettingsDiffer(left, right) == true);
+    right.wifiApSubnet = left.wifiApSubnet;
+
+    right.wifiStaConnectTimeoutMs = 20000;
+    assert(networkSettingsDiffer(left, right) == true);
+    right.wifiStaConnectTimeoutMs = left.wifiStaConnectTimeoutMs;
+}
+
 int main() {
     test_arePinsUnique_all_unique();
     test_arePinsUnique_duplicate_trig_echo();
     test_arePinsUnique_duplicate_water_err();
     test_arePinsUnique_all_same();
     std::cout << "All arePinsUnique tests passed!" << std::endl;
+
+    test_networkSettingsDiffer_identical();
+    test_networkSettingsDiffer_different_fields();
+    std::cout << "All networkSettingsDiffer tests passed!" << std::endl;
+
     return 0;
 }
