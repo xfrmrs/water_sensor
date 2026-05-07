@@ -1,16 +1,24 @@
 #include "common.h"
 
 bool jsonVarToUnsignedLong(const JSONVar &value, unsigned long &parsedValue) {
-  String rendered = JSON.stringify(value);
-  char *endPtr = nullptr;
-  unsigned long parsed = strtoul(rendered.c_str(), &endPtr, 10);
-
-  if (endPtr == rendered.c_str() || *endPtr != '\0') {
-    return false;
+  String type = JSON.typeof(value);
+  if (type == "number") {
+    parsedValue = (unsigned long)value;
+    return true;
   }
 
-  parsedValue = parsed;
-  return true;
+  if (type == "string") {
+    const char *strValue = (const char *)value;
+    char *endPtr = nullptr;
+    unsigned long parsed = strtoul(strValue, &endPtr, 10);
+    if (endPtr == strValue || *endPtr != '\0') {
+      return false;
+    }
+    parsedValue = parsed;
+    return true;
+  }
+
+  return false;
 }
 
 bool jsonVarToUint8(const JSONVar &value, uint8_t &parsedValue) {
@@ -53,16 +61,24 @@ bool jsonVarToBool(const JSONVar &value, bool &parsedValue) {
 }
 
 bool jsonVarToFloat(const JSONVar &value, float &parsedValue) {
-  String rendered = JSON.stringify(value);
-  char *endPtr = nullptr;
-  float parsed = strtof(rendered.c_str(), &endPtr);
-
-  if (endPtr == rendered.c_str() || *endPtr != '\0') {
-    return false;
+  String type = JSON.typeof(value);
+  if (type == "number") {
+    parsedValue = (double)value;
+    return true;
   }
 
-  parsedValue = parsed;
-  return true;
+  if (type == "string") {
+    const char *strValue = (const char *)value;
+    char *endPtr = nullptr;
+    float parsed = strtof(strValue, &endPtr);
+    if (endPtr == strValue || *endPtr != '\0') {
+      return false;
+    }
+    parsedValue = parsed;
+    return true;
+  }
+
+  return false;
 }
 
 bool requireUnsignedLongField(const JSONVar &json, const char *name, unsigned long &target) {

@@ -1,14 +1,14 @@
 #pragma once
-class LittleFSClass {};
+#include "Arduino.h"
 class File {
 public:
     operator bool() const { return false; }
-    String readString() { return ""; }
+    String readString() { return String(""); }
     void close() {}
     size_t print(const String&) { return 0; }
 };
 
-class LittleFSClass {
+class LittleFSMock {
 public:
     bool begin() { return true; }
     bool exists(const char*) { return false; }
@@ -16,4 +16,5 @@ public:
     bool remove(const char*) { return true; }
     bool rename(const char*, const char*) { return true; }
 };
-extern LittleFSClass LittleFS;
+
+extern LittleFSMock LittleFS;

@@ -11,3 +11,4 @@ tests/extracted_sut.cpp: config.ino
 
 clean:
 	rm -f test_config tests/extracted_sut.cpp
+# Mock Makefile to compile test
