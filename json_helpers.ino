@@ -3,8 +3,17 @@
 bool jsonVarToUnsignedLong(const JSONVar &value, unsigned long &parsedValue) {
   String type = JSON.typeof(value);
   if (type == "number") {
+#ifdef ARDUINO
     parsedValue = (unsigned long)value;
     return true;
+#else
+    try {
+      parsedValue = (unsigned long)value;
+      return true;
+    } catch (...) {
+      return false;
+    }
+#endif
   }
 
   if (type == "string") {

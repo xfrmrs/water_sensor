@@ -44,6 +44,25 @@ public:
     bool hasOwnProperty(const char* name) const { (void)name; return false; }
     JSONVar operator[](const char* name) const { (void)name; return JSONVar("undefined", "undefined"); }
     explicit operator const char*() const { return str_val.c_str(); }
+    explicit operator unsigned long() const {
+        try {
+            size_t idx;
+            unsigned long result = std::stoul(str_val, &idx);
+            if (idx != str_val.length()) {
+                 throw std::invalid_argument("not a pure integer");
+            }
+            return result;
+        } catch (...) {
+            throw std::invalid_argument("Invalid format");
+        }
+    }
+    explicit operator double() const {
+        try {
+            return std::stod(str_val);
+        } catch (...) {
+            return 0.0;
+        }
+    }
 };
 
 class JSON_Class {

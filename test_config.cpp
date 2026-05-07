@@ -112,11 +112,79 @@ void test_arePinsUnique_all_same() {
     assert(arePinsUnique(c) == false);
 }
 
+void reset_littlefs_mock() {
+    fileSystemReady = true;
+    LittleFS.beginReturnValue = true;
+    LittleFS.openReturnValue = true;
+    LittleFS.existsFn = nullptr;
+    LittleFS.removeFn = nullptr;
+    LittleFS.renameFn = nullptr;
+}
+
+void test_saveConfigToFs_fs_not_ready() {
+    reset_littlefs_mock();
+    fileSystemReady = false;
+    assert(saveConfigToFs() == false);
+}
+
+void test_saveConfigToFs_open_fails() {
+    reset_littlefs_mock();
+    LittleFS.openReturnValue = false;
+    assert(saveConfigToFs() == false);
+}
+
+bool littlefs_always_fails_rename(const char* oldPath, const char* newPath) { return false; }
+bool littlefs_always_false(const char* path) { return false; }
+
+bool littlefs_remove_called_with_tmp = false;
+bool littlefs_remove_tracking(const char* path) {
+    if (String(path) == String(CONFIG_TEMP_PATH)) {
+        littlefs_remove_called_with_tmp = true;
+    }
+    return true;
+}
+
+void test_saveConfigToFs_rename_fails() {
+    reset_littlefs_mock();
+    LittleFS.renameFn = littlefs_always_fails_rename;
+    LittleFS.existsFn = littlefs_always_false;
+    LittleFS.removeFn = littlefs_remove_tracking;
+    littlefs_remove_called_with_tmp = false;
+
+    assert(saveConfigToFs() == false);
+    assert(littlefs_remove_called_with_tmp == true);
+}
+
+bool littlefs_always_true(const char* path) { return true; }
+bool littlefs_always_fails_remove(const char* path) { return false; }
+
+void test_saveConfigToFs_remove_existing_fails() {
+    reset_littlefs_mock();
+    LittleFS.existsFn = littlefs_always_true;
+    LittleFS.removeFn = littlefs_always_fails_remove;
+
+    assert(saveConfigToFs() == false);
+}
+
+void test_saveConfigToFs_success() {
+    reset_littlefs_mock();
+    LittleFS.existsFn = littlefs_always_false;
+    assert(saveConfigToFs() == true);
+}
+
 int main() {
     test_arePinsUnique_all_unique();
     test_arePinsUnique_duplicate_trig_echo();
     test_arePinsUnique_duplicate_water_err();
     test_arePinsUnique_all_same();
     std::cout << "All arePinsUnique tests passed!" << std::endl;
+
+    test_saveConfigToFs_fs_not_ready();
+    test_saveConfigToFs_open_fails();
+    test_saveConfigToFs_rename_fails();
+    test_saveConfigToFs_remove_existing_fails();
+    test_saveConfigToFs_success();
+    std::cout << "All saveConfigToFs tests passed!" << std::endl;
+
     return 0;
 }
