@@ -7,7 +7,9 @@
 #else
 #include <string>
 #include <cstdint>
+#ifndef WATER_SENSOR_COMMON_H
 using String = std::string;
+#endif
 struct IPAddress;
 #endif
 

@@ -154,6 +154,12 @@ static unsigned long readMedianEchoUs() {
           yield();
           startMs = nowMs;
         }
+      unsigned long nowMs = millis();
+      if (nowMs - startMs + config.pingGapMs >= 50) {
+        delay(config.pingGapMs);
+        startMs = millis();
+      } else {
+        delayMicroseconds(config.pingGapMs * 1000UL);
       }
     }
   }

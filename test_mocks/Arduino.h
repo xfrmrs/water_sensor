@@ -9,8 +9,8 @@ class __FlashStringHelper;
 #define F(X) ((const __FlashStringHelper*)(X))
 
 class String {
-    std::string s;
 public:
+    std::string s;
     String() {}
     String(const char* c) : s(c) {}
     String(const __FlashStringHelper* f) : s((const char*)f) {}
