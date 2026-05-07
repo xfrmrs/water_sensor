@@ -367,6 +367,26 @@ void handleBootstrap() {
   }
 }
 
+static void writeConfigSaveResponse() {
+  beginStreamingJsonResponse(200);
+  JsonOutput output = makeHttpJsonOutput();
+  bool first = true;
+  jsonWrite(output, "{");
+  writeJsonBoolField(output, first, "ok", true);
+  writeJsonBoolField(output, first, "restartRequired", restartRequired());
+  writeJsonFieldPrefix(output, first, "restartFields");
+  writeRestartFieldsJsonArray(output);
+  writeJsonStringField(output, first, "reconnectHint", reconnectHint);
+  writeJsonFieldPrefix(output, first, "config");
+  writeConfigJsonObject(output, config, false, true);
+  writeJsonFieldPrefix(output, first, "status");
+  writeStatusJsonObject(output);
+  jsonWrite(output, "}");
+  if (server) {
+    server->sendContent("");
+  }
+}
+
 void handleConfigSave() {
   if (!checkAuth()) {
     return;
@@ -413,23 +433,7 @@ void handleConfigSave() {
     uiStatusMessage = F("Settings saved.");
   }
 
-  beginStreamingJsonResponse(200);
-  JsonOutput output = makeHttpJsonOutput();
-  bool first = true;
-  jsonWrite(output, "{");
-  writeJsonBoolField(output, first, "ok", true);
-  writeJsonBoolField(output, first, "restartRequired", restartRequired());
-  writeJsonFieldPrefix(output, first, "restartFields");
-  writeRestartFieldsJsonArray(output);
-  writeJsonStringField(output, first, "reconnectHint", reconnectHint);
-  writeJsonFieldPrefix(output, first, "config");
-  writeConfigJsonObject(output, config, false, true);
-  writeJsonFieldPrefix(output, first, "status");
-  writeStatusJsonObject(output);
-  jsonWrite(output, "}");
-  if (server) {
-    server->sendContent("");
-  }
+  writeConfigSaveResponse();
   broadcastStatus();
 }
 
