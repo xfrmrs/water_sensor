@@ -313,12 +313,7 @@ void applyMeasurementControl(MeasurementSnapshot &snapshot) {
     setWaterOutput(false);
     filling = false;
     count = 0;
-    setSnapshotFilling(snapshot, filling);
-    setSnapshotWaterOutputOn(snapshot, filling);
-    return;
-  }
-
-  if (WaterLow(snapshot.filteredUs)) {
+  } else if (WaterLow(snapshot.filteredUs)) {
     if (checkWaterTimeout(snapshot)) {
       return;
     }
@@ -328,16 +323,13 @@ void applyMeasurementControl(MeasurementSnapshot &snapshot) {
     }
     setWaterOutput(true);
     filling = true;
-    setSnapshotFilling(snapshot, filling);
-    setSnapshotWaterOutputOn(snapshot, filling);
-    return;
-  }
-
-  if (config.debugControlLogs) {
-    Serial.println(F("water NORMAL, keep current state"));
-  }
-  if (!filling) {
-    setWaterOutput(false);
+  } else {
+    if (config.debugControlLogs) {
+      Serial.println(F("water NORMAL, keep current state"));
+    }
+    if (!filling) {
+      setWaterOutput(false);
+    }
   }
 
   setSnapshotFilling(snapshot, filling);
