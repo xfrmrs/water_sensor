@@ -66,15 +66,86 @@ bool requireStringField(const JSONVar &json, const char *name, String &target) {
 }
 bool optionalStringField(const JSONVar &json, const char *name, String &target) { return true; }
 
-void writeJsonBoolField(JsonOutput &output, bool &first, const char *key, bool value) {}
-void writeJsonUIntField(JsonOutput &output, bool &first, const char *key, unsigned int value) {}
-void writeJsonULongField(JsonOutput &output, bool &first, const char *key, unsigned long value) {}
-void writeJsonFloatField(JsonOutput &output, bool &first, const char *key, float value, uint8_t decimals) {}
-void writeJsonStringField(JsonOutput &output, bool &first, const char *key, const String &value) {}
-void writeJsonStringField(JsonOutput &output, bool &first, const char *key, const char *value) {}
-void jsonWrite(JsonOutput &output, const char *value) {}
+void writeJsonBoolField(JsonOutput &output, bool &first, const char *key, bool value) {
+  if (output.context) {
+    String* str = static_cast<String*>(output.context);
+    if (!first) *str += ",";
+    first = false;
+    *str += "\"";
+    *str += key;
+    *str += "\":";
+    *str += (value ? "true" : "false");
+  }
+}
+void writeJsonUIntField(JsonOutput &output, bool &first, const char *key, unsigned int value) {
+  if (output.context) {
+    String* str = static_cast<String*>(output.context);
+    if (!first) *str += ",";
+    first = false;
+    *str += "\"";
+    *str += key;
+    *str += "\":";
+    *str += std::to_string(value).c_str();
+  }
+}
+void writeJsonULongField(JsonOutput &output, bool &first, const char *key, unsigned long value) {
+  if (output.context) {
+    String* str = static_cast<String*>(output.context);
+    if (!first) *str += ",";
+    first = false;
+    *str += "\"";
+    *str += key;
+    *str += "\":";
+    *str += std::to_string(value).c_str();
+  }
+}
+void writeJsonFloatField(JsonOutput &output, bool &first, const char *key, float value, uint8_t decimals) {
+  if (output.context) {
+    String* str = static_cast<String*>(output.context);
+    if (!first) *str += ",";
+    first = false;
+    *str += "\"";
+    *str += key;
+    *str += "\":";
+    *str += std::to_string(value).c_str(); // simplified
+  }
+}
+void writeJsonStringField(JsonOutput &output, bool &first, const char *key, const String &value) {
+  if (output.context) {
+    String* str = static_cast<String*>(output.context);
+    if (!first) *str += ",";
+    first = false;
+    *str += "\"";
+    *str += key;
+    *str += "\":\"";
+    *str += value;
+    *str += "\"";
+  }
+}
+void writeJsonStringField(JsonOutput &output, bool &first, const char *key, const char *value) {
+  if (output.context) {
+    String* str = static_cast<String*>(output.context);
+    if (!first) *str += ",";
+    first = false;
+    *str += "\"";
+    *str += key;
+    *str += "\":\"";
+    *str += value;
+    *str += "\"";
+  }
+}
+void jsonWrite(JsonOutput &output, const char *value) {
+  if (output.context) {
+    String* str = static_cast<String*>(output.context);
+    *str += value;
+  }
+}
 
-JsonOutput makeStringJsonOutput(String &target) { return JsonOutput(); }
+JsonOutput makeStringJsonOutput(String &target) {
+  JsonOutput output;
+  output.context = &target;
+  return output;
+}
 
 bool jsonVarToBool(const JSONVar &value, bool &parsedValue) { return true; }
 bool jsonVarToString(const JSONVar &value, String &parsedValue) { return true; }
@@ -84,6 +155,8 @@ void printConfigSummary(const Config &source, const __FlashStringHelper *label);
 #define typeof typeof_
 #include "config.ino"
 #undef typeof
+
+#include "ip_utils.cpp"
 
 #include <cassert>
 #include <iostream>
@@ -183,6 +256,9 @@ void test_configFromJson_missing_shared_field() {
     assert(result == false);
     assert(errorMessage == "Missing or invalid field: wifiApSsid");
 }
+void test_writeConfigJsonObject_WithSecretsAndFlags();
+void test_writeConfigJsonObject_NoSecretsButWithFlags();
+void test_writeConfigJsonObject_NoSecretsNoFlags();
 
 int main() {
     test_arePinsUnique_all_unique();
@@ -197,6 +273,75 @@ int main() {
     test_configFromJson_missing_adminPassword();
     test_configFromJson_missing_shared_field();
     std::cout << "All configFromJson tests passed!" << std::endl;
+    test_writeConfigJsonObject_WithSecretsAndFlags();
+    test_writeConfigJsonObject_NoSecretsButWithFlags();
+    test_writeConfigJsonObject_NoSecretsNoFlags();
+    std::cout << "All writeConfigJsonObject tests passed!" << std::endl;
 
     return 0;
+}
+
+void test_writeConfigJsonObject_WithSecretsAndFlags() {
+    Config c;
+    // Set some distinguishable values
+    c.debugControlLogs = true;
+    c.trigPin = 5;
+    c.wifiStaSsid = "my_ssid";
+    c.wifiStaPassword = "my_password";
+    c.adminPassword = "admin_password";
+
+    String buffer;
+    JsonOutput out = makeStringJsonOutput(buffer);
+
+    writeConfigJsonObject(out, c, true, true);
+
+    std::string s = buffer.s;
+    assert(s.find("\"trigPin\":5") != std::string::npos);
+    assert(s.find("\"wifiStaSsid\":\"my_ssid\"") != std::string::npos);
+    assert(s.find("\"wifiStaPassword\":\"my_password\"") != std::string::npos);
+    assert(s.find("\"adminPassword\":\"admin_password\"") != std::string::npos);
+    assert(s.find("\"hasStaPassword\":true") != std::string::npos);
+    assert(s.find("\"hasAdminPassword\":true") != std::string::npos);
+    std::cout << "test_writeConfigJsonObject_WithSecretsAndFlags passed!\n";
+}
+
+void test_writeConfigJsonObject_NoSecretsButWithFlags() {
+    Config c;
+    c.trigPin = 5;
+    c.wifiStaPassword = "my_password";
+    c.wifiApPassword = "ap_password";
+
+    String buffer;
+    JsonOutput out = makeStringJsonOutput(buffer);
+
+    writeConfigJsonObject(out, c, false, true);
+
+    std::string s = buffer.s;
+    assert(s.find("\"trigPin\":5") != std::string::npos);
+    assert(s.find("\"wifiStaPassword\":\"my_password\"") == std::string::npos);
+    assert(s.find("\"wifiApPassword\":\"ap_password\"") == std::string::npos);
+    assert(s.find("\"hasStaPassword\":true") != std::string::npos);
+    assert(s.find("\"hasApPassword\":true") != std::string::npos);
+    std::cout << "test_writeConfigJsonObject_NoSecretsButWithFlags passed!\n";
+}
+
+void test_writeConfigJsonObject_NoSecretsNoFlags() {
+    Config c;
+    c.trigPin = 5;
+    c.wifiStaPassword = "my_password";
+
+    String buffer;
+    JsonOutput out = makeStringJsonOutput(buffer);
+
+    writeConfigJsonObject(out, c, false, false);
+
+    std::string s = buffer.s;
+    assert(s.find("\"trigPin\":5") != std::string::npos);
+    assert(s.find("\"wifiStaPassword\":\"my_password\"") == std::string::npos);
+    assert(s.find("\"hasStaPassword\":true") == std::string::npos);
+    std::cout << "test_writeConfigJsonObject_NoSecretsNoFlags passed!\n";
+}
+
+void register_writeConfigJsonObject_tests() {
+    // Modify main below to call these tests or just do it here temporarily
 }

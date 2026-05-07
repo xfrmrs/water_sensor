@@ -146,10 +146,28 @@ static unsigned long readMedianEchoUs() {
 
     if (i + 1 < config.nPings) {
       delay(config.pingGapMs);
+
+      // Delay internally yields on ESP8266, meaning the elapsed time
+      // might have significantly jumped past our 50ms interval.
+      // We don't need to manually yield, but we do need to update
+      // our tracking timer to avoid a redundant explicit yield
+      // on the *next* iteration or soon after.
+      startMs = millis();
+      if (config.pingGapMs > 0) {
+        delay(config.pingGapMs);
+        startMs = millis();
+      } else {
+        unsigned long nowMs = millis();
+        if (nowMs - startMs >= 50) {
+          yield();
+          startMs = nowMs;
+        }
       unsigned long nowMs = millis();
-      if (nowMs - startMs >= 50) {
-        yield();
-        startMs = nowMs;
+      if (nowMs - startMs + config.pingGapMs >= 50) {
+        delay(config.pingGapMs);
+        startMs = millis();
+      } else {
+        delayMicroseconds(config.pingGapMs * 1000UL);
       }
     }
   }
@@ -295,7 +313,12 @@ void applyMeasurementControl(MeasurementSnapshot &snapshot) {
     setWaterOutput(false);
     filling = false;
     count = 0;
-  } else if (WaterLow(snapshot.filteredUs)) {
+    setSnapshotFilling(snapshot, filling);
+    setSnapshotWaterOutputOn(snapshot, filling);
+    return;
+  }
+
+  if (WaterLow(snapshot.filteredUs)) {
     if (checkWaterTimeout(snapshot)) {
       return;
     }
@@ -305,13 +328,16 @@ void applyMeasurementControl(MeasurementSnapshot &snapshot) {
     }
     setWaterOutput(true);
     filling = true;
-  } else {
-    if (config.debugControlLogs) {
-      Serial.println(F("water NORMAL, keep current state"));
-    }
-    if (!filling) {
-      setWaterOutput(false);
-    }
+    setSnapshotFilling(snapshot, filling);
+    setSnapshotWaterOutputOn(snapshot, filling);
+    return;
+  }
+
+  if (config.debugControlLogs) {
+    Serial.println(F("water NORMAL, keep current state"));
+  }
+  if (!filling) {
+    setWaterOutput(false);
   }
 
   setSnapshotFilling(snapshot, filling);
