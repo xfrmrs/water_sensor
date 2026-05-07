@@ -156,8 +156,6 @@ void printConfigSummary(const Config &source, const __FlashStringHelper *label);
 #include "config.ino"
 #undef typeof
 
-#include "ip_utils.cpp"
-
 #include <cassert>
 #include <iostream>
 
@@ -260,7 +258,89 @@ void test_writeConfigJsonObject_WithSecretsAndFlags();
 void test_writeConfigJsonObject_NoSecretsButWithFlags();
 void test_writeConfigJsonObject_NoSecretsNoFlags();
 
+void test_networkSettingsDiffer_identical() {
+    Config left;
+    left.wifiStaSsid = "SSID";
+    left.wifiStaPassword = "PASS";
+    left.wifiApSsid = "AP_SSID";
+    left.wifiApPassword = "AP_PASS";
+    left.wifiStaIp = "192.168.1.2";
+    left.wifiStaGateway = "192.168.1.1";
+    left.wifiStaSubnet = "255.255.255.0";
+    left.wifiApIp = "10.0.0.1";
+    left.wifiApGateway = "10.0.0.1";
+    left.wifiApSubnet = "255.255.255.0";
+    left.wifiStaConnectTimeoutMs = 10000;
+
+    Config right = left;
+
+    assert(networkSettingsDiffer(left, right) == false);
+}
+
+void test_networkSettingsDiffer_differing() {
+    Config left;
+    left.wifiStaSsid = "SSID";
+    left.wifiStaPassword = "PASS";
+    left.wifiApSsid = "AP_SSID";
+    left.wifiApPassword = "AP_PASS";
+    left.wifiStaIp = "192.168.1.2";
+    left.wifiStaGateway = "192.168.1.1";
+    left.wifiStaSubnet = "255.255.255.0";
+    left.wifiApIp = "10.0.0.1";
+    left.wifiApGateway = "10.0.0.1";
+    left.wifiApSubnet = "255.255.255.0";
+    left.wifiStaConnectTimeoutMs = 10000;
+
+    Config right = left;
+    right.wifiStaSsid = "DIFFERENT";
+    assert(networkSettingsDiffer(left, right) == true);
+
+    right = left;
+    right.wifiStaPassword = "DIFFERENT";
+    assert(networkSettingsDiffer(left, right) == true);
+
+    right = left;
+    right.wifiApSsid = "DIFFERENT";
+    assert(networkSettingsDiffer(left, right) == true);
+
+    right = left;
+    right.wifiApPassword = "DIFFERENT";
+    assert(networkSettingsDiffer(left, right) == true);
+
+    right = left;
+    right.wifiStaIp = "DIFFERENT";
+    assert(networkSettingsDiffer(left, right) == true);
+
+    right = left;
+    right.wifiStaGateway = "DIFFERENT";
+    assert(networkSettingsDiffer(left, right) == true);
+
+    right = left;
+    right.wifiStaSubnet = "DIFFERENT";
+    assert(networkSettingsDiffer(left, right) == true);
+
+    right = left;
+    right.wifiApIp = "DIFFERENT";
+    assert(networkSettingsDiffer(left, right) == true);
+
+    right = left;
+    right.wifiApGateway = "DIFFERENT";
+    assert(networkSettingsDiffer(left, right) == true);
+
+    right = left;
+    right.wifiApSubnet = "DIFFERENT";
+    assert(networkSettingsDiffer(left, right) == true);
+
+    right = left;
+    right.wifiStaConnectTimeoutMs = 20000;
+    assert(networkSettingsDiffer(left, right) == true);
+}
+
 int main() {
+    test_networkSettingsDiffer_identical();
+    test_networkSettingsDiffer_differing();
+    std::cout << "All networkSettingsDiffer tests passed!" << std::endl;
+
     test_arePinsUnique_all_unique();
     test_arePinsUnique_duplicate_trig_echo();
     test_arePinsUnique_duplicate_water_err();
