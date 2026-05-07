@@ -18,6 +18,7 @@ public:
     void trim() {}
     void reserve(size_t) {}
     bool operator==(const String& o) const { return s == o.s; }
+    int indexOf(const char* c) const { auto pos = s.find(c); return pos == std::string::npos ? -1 : pos; }
     bool operator!=(const String& o) const { return s != o.s; }
     String& operator+=(const char* c) { s += c; return *this; }
     String& operator+=(const String& o) { s += o.s; return *this; }

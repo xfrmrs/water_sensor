@@ -51,7 +51,17 @@ bool requireUnsignedLongField(const JSONVar &json, const char *name, unsigned lo
 bool optionalUnsignedLongField(const JSONVar &json, const char *name, unsigned long &target) { return true; }
 bool requireFloatField(const JSONVar &json, const char *name, float &target) { return true; }
 bool optionalFloatField(const JSONVar &json, const char *name, float &target) { return true; }
-bool requireStringField(const JSONVar &json, const char *name, String &target) { return true; }
+
+#include <map>
+#include <string>
+std::map<std::string, bool> mockRequireStringFieldResults;
+
+bool requireStringField(const JSONVar &json, const char *name, String &target) {
+    if (mockRequireStringFieldResults.find(name) != mockRequireStringFieldResults.end()) {
+        return mockRequireStringFieldResults[name];
+    }
+    return true;
+}
 bool optionalStringField(const JSONVar &json, const char *name, String &target) { return true; }
 
 void writeJsonBoolField(JsonOutput &output, bool &first, const char *key, bool value) {}
@@ -112,11 +122,86 @@ void test_arePinsUnique_all_same() {
     assert(arePinsUnique(c) == false);
 }
 
+void resetMocks() {
+    mockRequireStringFieldResults.clear();
+}
+
+void test_configFromJson_success() {
+    resetMocks();
+    JSONVar json;
+    Config candidate;
+    String errorMessage;
+
+    bool result = configFromJson(json, candidate, errorMessage);
+    assert(result == true);
+    assert(errorMessage == "");
+}
+
+void test_configFromJson_missing_sta_pwd() {
+    resetMocks();
+    mockRequireStringFieldResults["wifiStaPassword"] = false;
+
+    JSONVar json;
+    Config candidate;
+    String errorMessage;
+
+    bool result = configFromJson(json, candidate, errorMessage);
+    assert(result == false);
+    assert(errorMessage.indexOf("wifiStaPassword") != -1);
+}
+
+void test_configFromJson_missing_ap_pwd() {
+    resetMocks();
+    mockRequireStringFieldResults["wifiApPassword"] = false;
+
+    JSONVar json;
+    Config candidate;
+    String errorMessage;
+
+    bool result = configFromJson(json, candidate, errorMessage);
+    assert(result == false);
+    assert(errorMessage.indexOf("wifiApPassword") != -1);
+}
+
+void test_configFromJson_missing_admin_pwd() {
+    resetMocks();
+    mockRequireStringFieldResults["adminPassword"] = false;
+
+    JSONVar json;
+    Config candidate;
+    String errorMessage;
+
+    bool result = configFromJson(json, candidate, errorMessage);
+    assert(result == false);
+    assert(errorMessage.indexOf("adminPassword") != -1);
+}
+
+void test_configFromJson_shared_fields_fail() {
+    resetMocks();
+    mockRequireStringFieldResults["wifiApSsid"] = false;
+
+    JSONVar json;
+    Config candidate;
+    String errorMessage;
+
+    bool result = configFromJson(json, candidate, errorMessage);
+    assert(result == false);
+    assert(errorMessage.indexOf("wifiApSsid") != -1);
+}
+
 int main() {
     test_arePinsUnique_all_unique();
     test_arePinsUnique_duplicate_trig_echo();
     test_arePinsUnique_duplicate_water_err();
     test_arePinsUnique_all_same();
     std::cout << "All arePinsUnique tests passed!" << std::endl;
+
+    test_configFromJson_success();
+    test_configFromJson_missing_sta_pwd();
+    test_configFromJson_missing_ap_pwd();
+    test_configFromJson_missing_admin_pwd();
+    test_configFromJson_shared_fields_fail();
+    std::cout << "All configFromJson tests passed!" << std::endl;
+
     return 0;
 }
