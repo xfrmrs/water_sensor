@@ -112,11 +112,81 @@ void test_arePinsUnique_all_same() {
     assert(arePinsUnique(c) == false);
 }
 
+void test_restartSensitiveSettingsDiffer() {
+    Config left = {};
+    Config right = {};
+
+    // Initially identical
+    assert(restartSensitiveSettingsDiffer(left, right) == false);
+
+    // Modify a non-sensitive setting (e.g. nPings)
+    right.nPings = 5;
+    assert(restartSensitiveSettingsDiffer(left, right) == false);
+
+    // Modify a sensitive setting (trigPin)
+    right.trigPin = 5;
+    assert(restartSensitiveSettingsDiffer(left, right) == true);
+    right.trigPin = left.trigPin;
+
+    // Modify serialBaud
+    right.serialBaud = 115200;
+    assert(restartSensitiveSettingsDiffer(left, right) == true);
+    right.serialBaud = left.serialBaud;
+}
+
+void test_networkSettingsDiffer() {
+    Config left = {};
+    Config right = {};
+
+    // Initially identical
+    assert(networkSettingsDiffer(left, right) == false);
+
+    // Modify a non-network setting
+    right.trigPin = 5;
+    assert(networkSettingsDiffer(left, right) == false);
+
+    // Modify a network setting (wifiStaIp)
+    right.wifiStaIp = "192.168.1.100";
+    assert(networkSettingsDiffer(left, right) == true);
+    right.wifiStaIp = left.wifiStaIp;
+
+    // Modify wifiApPassword
+    right.wifiApPassword = "password";
+    assert(networkSettingsDiffer(left, right) == true);
+    right.wifiApPassword = left.wifiApPassword;
+
+    // Modify wifiStaConnectTimeoutMs
+    right.wifiStaConnectTimeoutMs = 10000;
+    assert(networkSettingsDiffer(left, right) == true);
+    right.wifiStaConnectTimeoutMs = left.wifiStaConnectTimeoutMs;
+}
+
+void test_restartRequired() {
+    bootConfig = Config();
+    config = Config();
+
+    // Initially identical
+    assert(restartRequired() == false);
+
+    // Modify a non-sensitive setting
+    config.nPings = 5;
+    assert(restartRequired() == false);
+
+    // Modify a sensitive setting
+    config.httpPort = 8080;
+    assert(restartRequired() == true);
+    config.httpPort = bootConfig.httpPort;
+}
+
 int main() {
     test_arePinsUnique_all_unique();
     test_arePinsUnique_duplicate_trig_echo();
     test_arePinsUnique_duplicate_water_err();
     test_arePinsUnique_all_same();
+    test_restartSensitiveSettingsDiffer();
+    test_networkSettingsDiffer();
+    test_restartRequired();
     std::cout << "All arePinsUnique tests passed!" << std::endl;
+    std::cout << "All restart tests passed!" << std::endl;
     return 0;
 }
