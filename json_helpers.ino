@@ -3,7 +3,14 @@
 bool jsonVarToUnsignedLong(const JSONVar &value, unsigned long &parsedValue) {
   String type = JSON.typeof(value);
   if (type == "number") {
-    parsedValue = (unsigned long)value;
+    // Attempt casting to catch invalid parses in mocks
+    unsigned long parsed = 0;
+    try {
+      parsed = (unsigned long)value;
+    } catch (...) {
+      return false;
+    }
+    parsedValue = parsed;
     return true;
   }
 

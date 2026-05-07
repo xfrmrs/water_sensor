@@ -43,15 +43,27 @@ SerialMock Serial;
 LittleFSMock LittleFS;
 JSONMock JSON;
 
-bool requireBoolField(const JSONVar &json, const char *name, bool &target) { return true; }
+String mock_fail_field = "";
+
+bool requireBoolField(const JSONVar &json, const char *name, bool &target) {
+    return mock_fail_field != String(name);
+}
 bool optionalBoolField(const JSONVar &json, const char *name, bool &target) { return true; }
-bool requireUint8Field(const JSONVar &json, const char *name, uint8_t &target) { return true; }
+bool requireUint8Field(const JSONVar &json, const char *name, uint8_t &target) {
+    return mock_fail_field != String(name);
+}
 bool optionalUint8Field(const JSONVar &json, const char *name, uint8_t &target) { return true; }
-bool requireUnsignedLongField(const JSONVar &json, const char *name, unsigned long &target) { return true; }
+bool requireUnsignedLongField(const JSONVar &json, const char *name, unsigned long &target) {
+    return mock_fail_field != String(name);
+}
 bool optionalUnsignedLongField(const JSONVar &json, const char *name, unsigned long &target) { return true; }
-bool requireFloatField(const JSONVar &json, const char *name, float &target) { return true; }
+bool requireFloatField(const JSONVar &json, const char *name, float &target) {
+    return mock_fail_field != String(name);
+}
 bool optionalFloatField(const JSONVar &json, const char *name, float &target) { return true; }
-bool requireStringField(const JSONVar &json, const char *name, String &target) { return true; }
+bool requireStringField(const JSONVar &json, const char *name, String &target) {
+    return mock_fail_field != String(name);
+}
 bool optionalStringField(const JSONVar &json, const char *name, String &target) { return true; }
 
 void writeJsonBoolField(JsonOutput &output, bool &first, const char *key, bool value) {}
@@ -112,11 +124,79 @@ void test_arePinsUnique_all_same() {
     assert(arePinsUnique(c) == false);
 }
 
+void test_configFromJson_success() {
+    JSONVar json;
+    Config candidate;
+    String errorMessage;
+
+    mock_fail_field = ""; // ensure no failures in fields
+
+    bool result = configFromJson(json, candidate, errorMessage);
+    assert(result == true);
+    assert(errorMessage == "");
+}
+
+void test_configFromJson_missing_wifiStaPassword() {
+    JSONVar json;
+    Config candidate;
+    String errorMessage;
+
+    mock_fail_field = "wifiStaPassword";
+
+    bool result = configFromJson(json, candidate, errorMessage);
+    assert(result == false);
+    assert(errorMessage == "Missing or invalid field: wifiStaPassword");
+}
+
+void test_configFromJson_missing_wifiApPassword() {
+    JSONVar json;
+    Config candidate;
+    String errorMessage;
+
+    mock_fail_field = "wifiApPassword";
+
+    bool result = configFromJson(json, candidate, errorMessage);
+    assert(result == false);
+    assert(errorMessage == "Missing or invalid field: wifiApPassword");
+}
+
+void test_configFromJson_missing_adminPassword() {
+    JSONVar json;
+    Config candidate;
+    String errorMessage;
+
+    mock_fail_field = "adminPassword";
+
+    bool result = configFromJson(json, candidate, errorMessage);
+    assert(result == false);
+    assert(errorMessage == "Missing or invalid field: adminPassword");
+}
+
+void test_configFromJson_missing_shared_field() {
+    JSONVar json;
+    Config candidate;
+    String errorMessage;
+
+    mock_fail_field = "wifiApSsid";
+
+    bool result = configFromJson(json, candidate, errorMessage);
+    assert(result == false);
+    assert(errorMessage == "Missing or invalid field: wifiApSsid");
+}
+
 int main() {
     test_arePinsUnique_all_unique();
     test_arePinsUnique_duplicate_trig_echo();
     test_arePinsUnique_duplicate_water_err();
     test_arePinsUnique_all_same();
     std::cout << "All arePinsUnique tests passed!" << std::endl;
+
+    test_configFromJson_success();
+    test_configFromJson_missing_wifiStaPassword();
+    test_configFromJson_missing_wifiApPassword();
+    test_configFromJson_missing_adminPassword();
+    test_configFromJson_missing_shared_field();
+    std::cout << "All configFromJson tests passed!" << std::endl;
+
     return 0;
 }
