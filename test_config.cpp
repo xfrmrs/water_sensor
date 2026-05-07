@@ -41,6 +41,7 @@ uint8_t pendingShortCount = 0;
 uint8_t invalidBurstCount = 0;
 SerialMock Serial;
 LittleFSMock LittleFS;
+LittleFSMockState littleFsMockState;
 JSONMock JSON;
 
 bool requireBoolField(const JSONVar &json, const char *name, bool &target) { return true; }
@@ -112,11 +113,99 @@ void test_arePinsUnique_all_same() {
     assert(arePinsUnique(c) == false);
 }
 
+void test_saveConfigToFs_fs_not_ready() {
+    littleFsMockState.reset();
+    fileSystemReady = false;
+    assert(saveConfigToFs() == false);
+}
+
+void test_saveConfigToFs_open_fails() {
+    littleFsMockState.reset();
+    fileSystemReady = true;
+    littleFsMockState.openReturn = false;
+    assert(saveConfigToFs() == false);
+    assert(littleFsMockState.lastOpenedPath == CONFIG_TEMP_PATH);
+    assert(littleFsMockState.lastOpenedMode == "w");
+}
+
+void test_saveConfigToFs_write_fails() {
+    littleFsMockState.reset();
+    fileSystemReady = true;
+    littleFsMockState.returnExactWriteLength = false;
+    littleFsMockState.writeReturnBytes = 0; // Return something other than payload length
+
+    // Provide a dummy payload to trigger length mismatch
+    // Because in our mock setup writeConfigJsonObject is an empty stub (or close to it)
+    // we need to make sure the mocked payload length evaluates differently than bytesWritten
+
+    // In our tests payload.length() might be 0, so if writeReturnBytes is 0, they match.
+    // Let's set writeReturnBytes to 999 instead so it differs from 0 (payload length).
+    littleFsMockState.writeReturnBytes = 999;
+
+    assert(saveConfigToFs() == false);
+    assert(littleFsMockState.closeCalled == true);
+    assert(littleFsMockState.lastRemovedPath == CONFIG_TEMP_PATH);
+}
+
+void test_saveConfigToFs_remove_old_fails() {
+    littleFsMockState.reset();
+    fileSystemReady = true;
+    littleFsMockState.existsReturn = true;
+    littleFsMockState.removeReturn = false; // Simulate failure removing old config
+    assert(saveConfigToFs() == false);
+    assert(littleFsMockState.closeCalled == true);
+    assert(littleFsMockState.lastRemovedPath == CONFIG_TEMP_PATH); // cleans up temp file
+}
+
+void test_saveConfigToFs_rename_fails() {
+    littleFsMockState.reset();
+    fileSystemReady = true;
+    littleFsMockState.existsReturn = false;
+    littleFsMockState.renameReturn = false; // Simulate rename failure
+    assert(saveConfigToFs() == false);
+    assert(littleFsMockState.closeCalled == true);
+    assert(littleFsMockState.lastRemovedPath == CONFIG_TEMP_PATH); // cleans up temp file
+}
+
+void test_saveConfigToFs_success_no_existing() {
+    littleFsMockState.reset();
+    fileSystemReady = true;
+    littleFsMockState.existsReturn = false; // no existing config file
+    assert(saveConfigToFs() == true);
+    assert(littleFsMockState.closeCalled == true);
+    assert(littleFsMockState.lastRenameFrom == CONFIG_TEMP_PATH);
+    assert(littleFsMockState.lastRenameTo == CONFIG_FILE_PATH);
+}
+
+void test_saveConfigToFs_success_existing_removed() {
+    littleFsMockState.reset();
+    fileSystemReady = true;
+    littleFsMockState.existsReturn = true; // existing config file
+    littleFsMockState.removeReturn = true; // successfully remove it
+
+    // We need to keep track of remove calls if multiple are made, but for now we just verify it succeeded.
+    assert(saveConfigToFs() == true);
+    assert(littleFsMockState.closeCalled == true);
+    assert(littleFsMockState.lastRemovedPath == CONFIG_FILE_PATH); // removes old config
+    assert(littleFsMockState.lastRenameFrom == CONFIG_TEMP_PATH);
+    assert(littleFsMockState.lastRenameTo == CONFIG_FILE_PATH);
+}
+
 int main() {
     test_arePinsUnique_all_unique();
     test_arePinsUnique_duplicate_trig_echo();
     test_arePinsUnique_duplicate_water_err();
     test_arePinsUnique_all_same();
     std::cout << "All arePinsUnique tests passed!" << std::endl;
+
+    test_saveConfigToFs_fs_not_ready();
+    test_saveConfigToFs_open_fails();
+    test_saveConfigToFs_write_fails();
+    test_saveConfigToFs_remove_old_fails();
+    test_saveConfigToFs_rename_fails();
+    test_saveConfigToFs_success_no_existing();
+    test_saveConfigToFs_success_existing_removed();
+    std::cout << "All saveConfigToFs tests passed!" << std::endl;
+
     return 0;
 }
