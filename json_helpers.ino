@@ -1,16 +1,34 @@
-#include "common.h"
+#include "src/common.h"
 
 bool jsonVarToUnsignedLong(const JSONVar &value, unsigned long &parsedValue) {
-  String rendered = JSON.stringify(value);
-  char *endPtr = nullptr;
-  unsigned long parsed = strtoul(rendered.c_str(), &endPtr, 10);
-
-  if (endPtr == rendered.c_str() || *endPtr != '\0') {
-    return false;
+  String type = JSON.typeof(value);
+  if (type == "number") {
+    unsigned long parsed = 0;
+#ifndef ARDUINO
+    try {
+      parsed = (unsigned long)value;
+    } catch (...) {
+      return false;
+    }
+#else
+    parsed = (unsigned long)value;
+#endif
+    parsedValue = parsed;
+    return true;
   }
 
-  parsedValue = parsed;
-  return true;
+  if (type == "string") {
+    const char *strValue = (const char *)value;
+    char *endPtr = nullptr;
+    unsigned long parsed = strtoul(strValue, &endPtr, 10);
+    if (endPtr == strValue || *endPtr != '\0') {
+      return false;
+    }
+    parsedValue = parsed;
+    return true;
+  }
+
+  return false;
 }
 
 bool jsonVarToUint8(const JSONVar &value, uint8_t &parsedValue) {
@@ -53,16 +71,24 @@ bool jsonVarToBool(const JSONVar &value, bool &parsedValue) {
 }
 
 bool jsonVarToFloat(const JSONVar &value, float &parsedValue) {
-  String rendered = JSON.stringify(value);
-  char *endPtr = nullptr;
-  float parsed = strtof(rendered.c_str(), &endPtr);
-
-  if (endPtr == rendered.c_str() || *endPtr != '\0') {
-    return false;
+  String type = JSON.typeof(value);
+  if (type == "number") {
+    parsedValue = (double)value;
+    return true;
   }
 
-  parsedValue = parsed;
-  return true;
+  if (type == "string") {
+    const char *strValue = (const char *)value;
+    char *endPtr = nullptr;
+    float parsed = strtof(strValue, &endPtr);
+    if (endPtr == strValue || *endPtr != '\0') {
+      return false;
+    }
+    parsedValue = parsed;
+    return true;
+  }
+
+  return false;
 }
 
 bool requireUnsignedLongField(const JSONVar &json, const char *name, unsigned long &target) {
@@ -217,12 +243,12 @@ static void flushEscapedJsonBuffer(JsonOutput &output, char *buffer, uint8_t &us
   used = 0;
 }
 
-void writeEscapedJsonString(JsonOutput &output, const String &value) {
+static void writeEscapedJsonInternal(JsonOutput &output, const char *value, size_t length) {
   char buffer[24];
   uint8_t used = 0;
 
-  for (size_t i = 0; i < value.length(); ++i) {
-    const char current = value.charAt(i);
+  for (size_t i = 0; i < length; ++i) {
+    const char current = value[i];
     const char *escapeSequence = nullptr;
 
     switch (current) {
@@ -260,47 +286,12 @@ void writeEscapedJsonString(JsonOutput &output, const String &value) {
   flushEscapedJsonBuffer(output, buffer, used);
 }
 
+void writeEscapedJsonString(JsonOutput &output, const String &value) {
+  writeEscapedJsonInternal(output, value.c_str(), value.length());
+}
+
 void writeEscapedJsonCString(JsonOutput &output, const char *value) {
-  char buffer[24];
-  uint8_t used = 0;
-
-  while (*value != '\0') {
-    const char current = *value++;
-    const char *escapeSequence = nullptr;
-
-    switch (current) {
-      case '\\':
-        escapeSequence = "\\\\";
-        break;
-      case '"':
-        escapeSequence = "\\\"";
-        break;
-      case '\n':
-        escapeSequence = "\\n";
-        break;
-      case '\r':
-        escapeSequence = "\\r";
-        break;
-      case '\t':
-        escapeSequence = "\\t";
-        break;
-      default:
-        break;
-    }
-
-    if (escapeSequence != nullptr) {
-      flushEscapedJsonBuffer(output, buffer, used);
-      jsonWrite(output, escapeSequence);
-      continue;
-    }
-
-    buffer[used++] = current;
-    if (used >= (sizeof(buffer) - 1)) {
-      flushEscapedJsonBuffer(output, buffer, used);
-    }
-  }
-
-  flushEscapedJsonBuffer(output, buffer, used);
+  writeEscapedJsonInternal(output, value, strlen(value));
 }
 
 void writeJsonFieldPrefix(JsonOutput &output, bool &first, const char *key) {

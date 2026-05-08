@@ -1,0 +1,3 @@
+# Ignore compiled test binaries
+test_runner
+.bin/

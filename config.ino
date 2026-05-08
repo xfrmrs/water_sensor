@@ -1,4 +1,4 @@
-#include "common.h"
+#include "src/common.h"
 
 bool beginFileSystem() {
   fileSystemReady = LittleFS.begin();
@@ -64,7 +64,6 @@ static const ConfigFieldDescriptor SHARED_CONFIG_FIELDS[] = {
   {"shortConfirmCount", offsetof(Config, shortConfirmCount), CONFIG_FIELD_UINT8, true, false},
   {"maxHeldInvalidBursts", offsetof(Config, maxHeldInvalidBursts), CONFIG_FIELD_UINT8, true, false},
   {"wifiStaSsid", offsetof(Config, wifiStaSsid), CONFIG_FIELD_STRING, false, true},
-  {"wifiStaPassword", offsetof(Config, wifiStaPassword), CONFIG_FIELD_STRING, false, false},
   {"enableStationDhcp", offsetof(Config, enableStationDhcp), CONFIG_FIELD_BOOL, false, true},
   {"enableApDhcp", offsetof(Config, enableApDhcp), CONFIG_FIELD_BOOL, false, true},
   {"wifiApSsid", offsetof(Config, wifiApSsid), CONFIG_FIELD_STRING, false, true},
@@ -190,7 +189,6 @@ static const ConfigJsonFieldDescriptor CONFIG_JSON_FIELDS[] = {
   {"shortConfirmCount", offsetof(Config, shortConfirmCount), CONFIG_FIELD_UINT8, 0},
   {"maxHeldInvalidBursts", offsetof(Config, maxHeldInvalidBursts), CONFIG_FIELD_UINT8, 0},
   {"wifiStaSsid", offsetof(Config, wifiStaSsid), CONFIG_FIELD_STRING, 0},
-  {"wifiStaPassword", offsetof(Config, wifiStaPassword), CONFIG_FIELD_STRING, 0},
   {"enableStationDhcp", offsetof(Config, enableStationDhcp), CONFIG_FIELD_BOOL, 0},
   {"enableApDhcp", offsetof(Config, enableApDhcp), CONFIG_FIELD_BOOL, 0},
   {"wifiApSsid", offsetof(Config, wifiApSsid), CONFIG_FIELD_STRING, 0},
@@ -238,21 +236,19 @@ void writeConfigJsonObject(JsonOutput &output, const Config &source, bool includ
   jsonWrite(output, "{");
 
   for (size_t i = 0; i < sizeof(CONFIG_JSON_FIELDS) / sizeof(CONFIG_JSON_FIELDS[0]); ++i) {
-    const char *fieldName = CONFIG_JSON_FIELDS[i].name;
-    if (strcmp(fieldName, "wifiStaPassword") == 0 || strcmp(fieldName, "wifiApPassword") == 0) {
-      continue;
-    }
     writeConfigJsonField(output, first, CONFIG_JSON_FIELDS[i], source);
   }
 
   if (includeSecrets) {
     writeJsonStringField(output, first, "wifiStaPassword", source.wifiStaPassword);
     writeJsonStringField(output, first, "wifiApPassword", source.wifiApPassword);
+    writeJsonStringField(output, first, "adminPassword", source.adminPassword);
   }
 
   if (includePasswordFlags) {
     writeJsonBoolField(output, first, "hasStaPassword", source.wifiStaPassword.length() > 0);
     writeJsonBoolField(output, first, "hasApPassword", source.wifiApPassword.length() > 0);
+    writeJsonBoolField(output, first, "hasAdminPassword", source.adminPassword.length() > 0);
   }
 
   jsonWrite(output, "}");
@@ -272,29 +268,17 @@ bool configFromJson(const JSONVar &json, Config &candidate, String &errorMessage
     setFieldError(errorMessage, "wifiApPassword");
     return false;
   }
+  if (json.hasOwnProperty("adminPassword") && !requireStringField(json, "adminPassword", parsed.adminPassword)) {
+    setFieldError(errorMessage, "adminPassword");
+    return false;
+  }
 
   candidate = parsed;
   return true;
 }
 
-bool parseIpAddressString(const String &value, IPAddress &parsedValue) {
-  IPAddress candidate;
-  if (!candidate.fromString(value)) {
-    return false;
-  }
-
-  parsedValue = candidate;
-  return true;
-}
-
 bool isSafePinValue(uint8_t pinValue) {
-  for (size_t i = 0; i < (sizeof(SAFE_GPIO_VALUES) / sizeof(SAFE_GPIO_VALUES[0])); ++i) {
-    if (SAFE_GPIO_VALUES[i] == pinValue) {
-      return true;
-    }
-  }
-
-  return false;
+  return pinValue < 32 && (SAFE_GPIO_MASK & (1UL << pinValue));
 }
 
 bool arePinsUnique(const Config &candidate) {
@@ -326,9 +310,7 @@ bool isSupportedBaud(unsigned long baudRate) {
   return false;
 }
 
-bool validateConfig(const Config &candidate, String &errorMessage) {
-  IPAddress parsedIp;
-
+static bool validateWaterConfig(const Config &candidate, String &errorMessage) {
   if (candidate.waterMaxDuration == 0) {
     errorMessage = F("Water max duration must be greater than 0.");
     return false;
@@ -354,6 +336,10 @@ bool validateConfig(const Config &candidate, String &errorMessage) {
     return false;
   }
 
+  return true;
+}
+
+static bool validatePingConfig(const Config &candidate, String &errorMessage) {
   if (candidate.nPings == 0 || candidate.nPings > candidate.maxConfigurablePings) {
     errorMessage = F("Ping count is out of range.");
     return false;
@@ -374,6 +360,20 @@ bool validateConfig(const Config &candidate, String &errorMessage) {
     return false;
   }
 
+  if (candidate.maxConfigurablePings == 0 || candidate.maxConfigurablePings > MAX_PING_BUFFER_CAPACITY) {
+    errorMessage = F("Max configurable pings must be between 1 and the supported maximum.");
+    return false;
+  }
+
+  if (candidate.nPings > candidate.maxConfigurablePings) {
+    errorMessage = F("Ping count must not exceed the configured maximum pings.");
+    return false;
+  }
+
+  return true;
+}
+
+static bool validateHardwareConfig(const Config &candidate, String &errorMessage) {
   if (!isSafePinValue(candidate.trigPin) ||
       !isSafePinValue(candidate.echoPin) ||
       !isSafePinValue(candidate.waterPin) ||
@@ -392,6 +392,10 @@ bool validateConfig(const Config &candidate, String &errorMessage) {
     return false;
   }
 
+  return true;
+}
+
+static bool validateSystemConfig(const Config &candidate, String &errorMessage) {
   if (candidate.httpPort == 0 || candidate.httpPort > 65535UL) {
     errorMessage = F("HTTP port must be a valid TCP port number.");
     return false;
@@ -416,7 +420,6 @@ bool validateConfig(const Config &candidate, String &errorMessage) {
     errorMessage = F("Setup AP max connections must be between 1 and 8.");
     return false;
   }
-
   if (candidate.historyCapacity == 0 || candidate.historyCapacity > MAX_HISTORY_BUFFER_CAPACITY) {
     errorMessage = F("History capacity must be between 1 and the supported maximum.");
     return false;
@@ -431,13 +434,18 @@ bool validateConfig(const Config &candidate, String &errorMessage) {
     errorMessage = F("Ping count must not exceed the configured maximum pings.");
     return false;
   }
-
   if (candidate.kalmanMeasurementError <= 0.0f ||
       candidate.kalmanEstimateError <= 0.0f ||
       candidate.kalmanProcessNoise <= 0.0f) {
     errorMessage = F("Kalman filter values must be greater than 0.");
     return false;
   }
+
+  return true;
+}
+
+static bool validateNetworkConfig(const Config &candidate, String &errorMessage) {
+  IPAddress parsedIp;
 
   if (candidate.wifiApSsid.length() == 0) {
     errorMessage = F("Setup AP SSID is required.");
@@ -449,23 +457,30 @@ bool validateConfig(const Config &candidate, String &errorMessage) {
     return false;
   }
 
+  if (candidate.adminPassword.length() > 0 && candidate.adminPassword.length() < 4) {
+    errorMessage = F("Admin password must be blank or at least 4 characters.");
+    return false;
+  }
+
   if (candidate.wifiStaConnectTimeoutMs == 0) {
     errorMessage = F("Wi-Fi station timeout must be greater than 0.");
     return false;
   }
 
-  if (candidate.wifiStaIp.length() == 0 ||
-      candidate.wifiStaGateway.length() == 0 ||
-      candidate.wifiStaSubnet.length() == 0) {
-    errorMessage = F("Station IP, gateway, and subnet must be provided in config.json.");
-    return false;
-  }
+  if (!candidate.enableStationDhcp) {
+    if (candidate.wifiStaIp.length() == 0 ||
+        candidate.wifiStaGateway.length() == 0 ||
+        candidate.wifiStaSubnet.length() == 0) {
+      errorMessage = F("Station IP, gateway, and subnet must be provided when DHCP is disabled.");
+      return false;
+    }
 
-  if (!parseIpAddressString(candidate.wifiStaIp, parsedIp) ||
-      !parseIpAddressString(candidate.wifiStaGateway, parsedIp) ||
-      !parseIpAddressString(candidate.wifiStaSubnet, parsedIp)) {
-    errorMessage = F("Station IP, gateway, and subnet must be valid dotted-quad IPv4 addresses.");
-    return false;
+    if (!parseIpAddressString(candidate.wifiStaIp, parsedIp) ||
+        !parseIpAddressString(candidate.wifiStaGateway, parsedIp) ||
+        !parseIpAddressString(candidate.wifiStaSubnet, parsedIp)) {
+        errorMessage = F("Station IP, gateway, and subnet must be valid dotted-quad IPv4 addresses.");
+        return false;
+      }
   }
 
   if (!parseIpAddressString(candidate.wifiApIp, parsedIp) ||
@@ -476,6 +491,14 @@ bool validateConfig(const Config &candidate, String &errorMessage) {
   }
 
   return true;
+}
+
+bool validateConfig(const Config &candidate, String &errorMessage) {
+  return validateWaterConfig(candidate, errorMessage) &&
+         validatePingConfig(candidate, errorMessage) &&
+         validateHardwareConfig(candidate, errorMessage) &&
+         validateSystemConfig(candidate, errorMessage) &&
+         validateNetworkConfig(candidate, errorMessage);
 }
 
 void printLittleFsInventory() {
@@ -971,6 +994,10 @@ static bool parseConfigFromFlatJsonPayload(const String &payload, Config &candid
   if (!readFlatJsonStringField(payload, "wifiApPassword", true, parsed.wifiApPassword, present, errorMessage)) {
     return false;
   }
+  present = false;
+  if (!readFlatJsonStringField(payload, "adminPassword", false, parsed.adminPassword, present, errorMessage)) {
+    return false;
+  }
 
   candidate = parsed;
   return true;
@@ -1080,7 +1107,16 @@ bool restartRequired() {
 
 String buildReconnectHint(const Config &targetConfig) {
   String hint = F("Reconnect to ");
-  hint += targetConfig.wifiStaIp;
+  if (targetConfig.enableStationDhcp) {
+    hint += F("the device's DHCP address on ");
+    if (targetConfig.wifiStaSsid.length() > 0) {
+      hint += targetConfig.wifiStaSsid;
+    } else {
+      hint += F("your LAN");
+    }
+  } else {
+    hint += targetConfig.wifiStaIp;
+  }
   hint += F(" if the station join succeeds, or to setup AP ");
   hint += targetConfig.wifiApSsid;
   hint += F(" at ");
@@ -1131,10 +1167,12 @@ void printConfigSummary(const Config &source, const __FlashStringHelper *label) 
   Serial.println(source.wifiApMaxConnections);
   Serial.print(F("  dnsPort="));
   Serial.println(source.dnsPort);
+  Serial.print(F("  adminPasswordSet="));
+  Serial.println(source.adminPassword.length() > 0 ? F("true") : F("false"));
 }
 
 bool parseConfigFromRequestBody(Config &candidate, String &errorMessage) {
-  String body = server->arg("plain");
+  String body = server ? server->arg("plain") : String();
   if (body.length() == 0) {
     errorMessage = F("Request body is empty.");
     return false;
@@ -1147,9 +1185,14 @@ bool parseConfigFromRequestBody(Config &candidate, String &errorMessage) {
 
   bool clearStaPassword = false;
   bool clearApPassword = false;
+  bool clearAdminPassword = false;
   String staPasswordInput = "";
   String apPasswordInput = "";
+  String adminPasswordInput = "";
   bool present = false;
+  bool staPasswordPresent = false;
+  bool apPasswordPresent = false;
+  bool adminPasswordPresent = false;
 
   if (!readFlatJsonBoolField(body, "clearStaPassword", false, clearStaPassword, present, errorMessage)) {
     return false;
@@ -1157,12 +1200,16 @@ bool parseConfigFromRequestBody(Config &candidate, String &errorMessage) {
   if (!readFlatJsonBoolField(body, "clearApPassword", false, clearApPassword, present, errorMessage)) {
     return false;
   }
-  bool staPasswordPresent = false;
+  if (!readFlatJsonBoolField(body, "clearAdminPassword", false, clearAdminPassword, present, errorMessage)) {
+    return false;
+  }
   if (!readFlatJsonStringField(body, "wifiStaPassword", false, staPasswordInput, staPasswordPresent, errorMessage)) {
     return false;
   }
-  bool apPasswordPresent = false;
   if (!readFlatJsonStringField(body, "wifiApPassword", false, apPasswordInput, apPasswordPresent, errorMessage)) {
+    return false;
+  }
+  if (!readFlatJsonStringField(body, "adminPassword", false, adminPasswordInput, adminPasswordPresent, errorMessage)) {
     return false;
   }
 
@@ -1180,6 +1227,14 @@ bool parseConfigFromRequestBody(Config &candidate, String &errorMessage) {
     parsed.wifiApPassword = apPasswordInput;
   } else {
     parsed.wifiApPassword = config.wifiApPassword;
+  }
+
+  if (clearAdminPassword) {
+    parsed.adminPassword = "";
+  } else if (adminPasswordPresent) {
+    parsed.adminPassword = adminPasswordInput;
+  } else {
+    parsed.adminPassword = config.adminPassword;
   }
 
   candidate = parsed;

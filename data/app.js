@@ -96,6 +96,19 @@ const FIELD_SECTIONS = [
       { key: "wifiApHidden", label: "Hide setup AP SSID", type: "checkbox" },
       { key: "wifiApMaxConnections", label: "Setup AP max clients", type: "number", min: 1, step: 1 }
     ]
+  },
+  {
+    title: "Security",
+    description: "Manage administrative access to the device settings.",
+    fields: [
+      {
+        key: "adminPassword",
+        label: "Admin password",
+        type: "password",
+        clearKey: "clearAdminPassword",
+        storedFlag: "hasAdminPassword"
+      }
+    ]
   }
 ];
 

@@ -123,7 +123,8 @@ The root inventory confirms that the LittleFS upload contains `/config.json`, `/
 ## Project Files
 
 - `water_sensor.ino`: main setup loop, configuration-gated startup, runtime service loop, and restart handling.
-- `common.h`: shared configuration, measurement, history, and runtime state declarations.
+- `src/common.h`: shared configuration, measurement, history, and runtime state declarations.
+- `src/ip_utils.h` and `src/ip_utils.cpp`: IPv4 parsing helpers shared by configuration validation.
 - `config.ino`: LittleFS configuration load/save, JSON parsing, and configuration validation.
 - `network_ui.ino`: Wi-Fi station/AP control, AP DHCP control, captive DNS service, HTTP endpoints, WebSocket state publication, firmware dashboard serving, and dashboard API handling.
 - `measurement.ino`: ultrasonic sampling, filtering, validity decisions, relay/error-output control, and emergency shutoff enforcement.
@@ -160,9 +161,12 @@ Install these Arduino packages:
 6. Confirm the boot log includes the LittleFS inventory and `Runtime configuration loaded and validated.`
 7. Connect to `WaterSensorSetup` when station join is unavailable.
 8. Open `http://10.0.0.47/` while connected to the setup AP.
-9. Review live measurements, hardware settings, filter parameters, station Wi-Fi settings, setup AP settings, and DHCP selections.
-10. Save the settings.
-11. Use the dashboard restart control when pin, port, or serial-baud settings are edited.
+9. Log in with the default HTTP Basic credentials:
+   - Username: `admin`
+   - Password: `admin`
+10. Review live measurements, hardware settings, filter parameters, station Wi-Fi settings, setup AP settings, DHCP selections, and security settings.
+11. Save the settings. Station and setup AP network changes are applied live. Pin, port, and serial-baud changes are saved immediately but require a reboot from the dashboard before they take effect.
+12. Use the dashboard restart control when pin, port, or serial-baud settings are edited.
 
 ## Runtime Configuration Fields
 
@@ -181,6 +185,13 @@ The dashboard presents editable fields for:
 - Setup AP DHCP service.
 - Setup AP IP, gateway, and subnet.
 - Setup AP channel, SSID visibility, and maximum client count.
+- Admin password management.
+
+## Security
+
+The dashboard is protected by HTTP Basic Authentication. The default username is `admin` and the default password is `admin`. Change the admin password in the Security section after first login.
+
+The dashboard intentionally does not echo stored passwords (Wi-Fi or admin) back to the browser:
 
 Every dashboard save posts the complete editable configuration to `/api/config`. The backend validates the candidate configuration, writes it to `/config.json`, and publishes the active state to the dashboard.
 

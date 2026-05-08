@@ -43,6 +43,11 @@
   "httpPort": 80,
   "websocketPort": 81,
   "dnsPort": 53,
+  "adminPassword": "admin",
+  "wifiStaConnectTimeoutMs": 15000,
+  "httpPort": 80,
+  "websocketPort": 81,
+  "dnsPort": 53,
   "historyCapacity": 120,
   "maxConfigurablePings": 12
 }

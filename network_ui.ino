@@ -1,4 +1,4 @@
-#include "common.h"
+#include "src/common.h"
 extern "C" {
 #include "user_interface.h"
 }
@@ -356,39 +356,30 @@ void writeStatusJsonObject(JsonOutput &output) {
   jsonWrite(output, "}");
 }
 
-String buildStatusJson() {
+String buildStatusMessage() {
   String json;
-  json.reserve(1200);
+  json.reserve(1200 + 48);
+  json += F("{\"type\":\"status\",\"data\":");
   JsonOutput output = makeStringJsonOutput(json);
   writeStatusJsonObject(output);
-  return json;
-}
-
-String buildWebSocketMessage(const char *type, const String &dataJson) {
-  String json;
-  json.reserve(dataJson.length() + 48);
-  json += F("{\"type\":\"");
-  json += type;
-  json += F("\",\"data\":");
-  json += dataJson;
   json += '}';
   return json;
 }
 
-void broadcastJson(const char *type, const String &dataJson) {
+void broadcastStatus() {
   if (!webSocket) {
     return;
   }
-  String payload = buildWebSocketMessage(type, dataJson);
+  String payload = buildStatusMessage();
   webSocket->broadcastTXT(payload);
 }
 
-void broadcastStatus() {
-  broadcastJson("status", buildStatusJson());
-}
-
 void broadcastTelemetry(const MeasurementSnapshot &snapshot) {
-  broadcastJson("telemetry", buildMeasurementJson(snapshot));
+  if (!webSocket) {
+    return;
+  }
+  String payload = buildTelemetryMessage(snapshot);
+  webSocket->broadcastTXT(payload);
 }
 
 void handleWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
@@ -396,7 +387,7 @@ void handleWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t l
   (void)length;
 
   if (type == WStype_CONNECTED) {
-    String payload = buildWebSocketMessage("status", buildStatusJson());
+    String payload = buildStatusMessage();
     if (webSocket) {
       webSocket->sendTXT(num, payload);
     }
@@ -452,6 +443,19 @@ static void sendJsonErrorResponse(int statusCode, const String &message) {
   }
 }
 
+static bool checkAuth() {
+  if (config.adminPassword.length() == 0) {
+    return true;
+  }
+
+  if (!server->authenticate("admin", config.adminPassword.c_str())) {
+    server->requestAuthentication();
+    return false;
+  }
+
+  return true;
+}
+
 void handleRoot() {
   if (!sendStaticFile(INDEX_FILE_PATH, "text/html")) {
     if (server) {
@@ -462,6 +466,9 @@ void handleRoot() {
 }
 
 void handleBootstrap() {
+  if (!checkAuth()) {
+    return;
+  }
   beginStreamingJsonResponse(200);
   JsonOutput output = makeHttpJsonOutput();
   bool first = true;
@@ -539,6 +546,9 @@ void handleEmergencyStop() {
 }
 
 void handleConfigSave() {
+  if (!checkAuth()) {
+    return;
+  }
   Config previousConfig = config;
   Config candidate = config;
   String errorMessage;
@@ -602,6 +612,9 @@ void handleConfigSave() {
 }
 
 void handleRestart() {
+  if (!checkAuth()) {
+    return;
+  }
   uiStatusMessage = F("Restart requested. The device is rebooting.");
   restartPending = true;
   restartAfterMs = millis() + 750UL;
@@ -622,6 +635,10 @@ void handleRestart() {
 
 void handleNotFound() {
   String path = server ? server->uri() : String();
+  if (path.endsWith(F("/config.json")) || path.endsWith(F("/config.tmp"))) {
+    sendJsonErrorResponse(403, F("Forbidden"));
+    return;
+  }
   String contentType = detectContentType(path);
   if (sendStaticFile(path.c_str(), contentType.c_str())) {
     return;

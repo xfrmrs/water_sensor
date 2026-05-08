@@ -12,15 +12,22 @@
 #include <SimpleKalmanFilter.h>
 #include <WebSocketsServer.h>
 
+#include "ip_utils.h"
+
 static const char *CONFIG_FILE_PATH = "/config.json";
 static const char *CONFIG_TEMP_PATH = "/config.tmp";
 static const char *INDEX_FILE_PATH = "/index.html";
 static const char *APP_JS_FILE_PATH = "/app.js";
 static const char *STYLE_CSS_FILE_PATH = "/style.css";
+static const uint16_t BOOT_HTTP_PORT = 80;
+static const uint16_t BOOT_WEBSOCKET_PORT = 81;
 static const uint8_t MAX_PING_BUFFER_CAPACITY = 12;
 static const size_t MAX_HISTORY_BUFFER_CAPACITY = 120;
 static const unsigned long BOOT_SERIAL_BAUD = 74880UL;
+// Keep SAFE_GPIO_MASK aligned with SAFE_GPIO_VALUES.
 static const uint8_t SAFE_GPIO_VALUES[] = {4, 5, 12, 13, 14, 16};
+static const uint32_t SAFE_GPIO_MASK =
+  (1UL << 4) | (1UL << 5) | (1UL << 12) | (1UL << 13) | (1UL << 14) | (1UL << 16);
 static const unsigned long SUPPORTED_SERIAL_BAUDS[] = {
   9600UL,
   19200UL,
@@ -88,6 +95,7 @@ struct Config {
   String wifiApIp;
   String wifiApGateway;
   String wifiApSubnet;
+  String adminPassword;
   unsigned long wifiStaConnectTimeoutMs;
   unsigned long httpPort;
   unsigned long websocketPort;
@@ -171,7 +179,6 @@ extern unsigned long pendingShortUs;
 extern uint8_t pendingShortCount;
 extern uint8_t invalidBurstCount;
 
-
 bool beginFileSystem();
 void printLittleFsInventory();
 bool loadConfigFromFs();
@@ -181,8 +188,8 @@ bool parseConfigFromRequestBody(Config &candidate, String &errorMessage);
 bool validateConfig(const Config &candidate, String &errorMessage);
 bool networkSettingsDiffer(const Config &left, const Config &right);
 bool restartRequired();
+String buildReconnectHint(const Config &targetConfig);
 void printConfigSummary(const Config &source, const __FlashStringHelper *label);
-bool parseIpAddressString(const String &value, IPAddress &parsedValue);
 void applyActiveRuntimeSettings(const Config &source);
 void rebuildKalmanFilter();
 void resetMeasurementState();
@@ -194,10 +201,10 @@ void configureWebSocket();
 void servicePendingIo();
 void serviceRuntime(unsigned long durationMs);
 MeasurementSnapshot measureWaterLevel();
-void applyMeasurementControl(const MeasurementSnapshot &snapshot);
+void applyMeasurementControl(MeasurementSnapshot &snapshot);
 void pushHistory(const MeasurementSnapshot &snapshot);
 void broadcastTelemetry(const MeasurementSnapshot &snapshot);
-String buildMeasurementJson(const MeasurementSnapshot &snapshot);
+String buildTelemetryMessage(const MeasurementSnapshot &snapshot);
 void writeMeasurementJsonObject(JsonOutput &output, const MeasurementSnapshot &snapshot);
 void writeHistoryPointJsonObject(JsonOutput &output, const HistorySample &sample);
 JsonOutput makeStringJsonOutput(String &target);
@@ -233,7 +240,7 @@ bool optionalFloatField(const JSONVar &json, const char *name, float &target);
 void setWaterOutput(bool enabled);
 void setErrorIndicator(bool error);
 void activateEmergencyStop();
-String buildStatusJson();
+String buildStatusMessage();
 void broadcastStatus();
 
 #endif // WATER_SENSOR_COMMON_H
